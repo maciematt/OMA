@@ -5,26 +5,16 @@
 \title{`run_dgsva`, as in "run differential GSVA".
 Here using gsva and limma.}
 \usage{
-run_dgsva(
-  ge_objects,
-  technology = NULL,
-  gene_sets = NULL,
-  translate_to_entrezid = NULL
-)
+run_dgsva(ge_object, gene_sets = NULL, translate_to_entrezid = NULL)
 }
-\arguments{
-\item{`technology`}{needs to be a vector of "microarray" or "RNA-seq" values corresponding to the technologies in the corresponding members of `ge_objects`. If left at NULL, all datasets in `ge_objects` are assumed to be from microarrays.
-
+\description{
 *Could be passing in a concrete contrast argument instead with a more
 complex contrast once needed (when/if implementing, remember that these
 will need to be supplied with `make.names`'d variable names) - for now
 working with simple contrasts, so don't need to implement this.
 *This expression should involve all levels from the "active_levels" and
 "reference_levels" lists.
-
-Remember to pre-merge any synonymous levels before using OMA!}
 }
-\description{
-`run_dgsva`, as in "run differential GSVA".
-Here using gsva and limma.
+\details{
+Remember to pre-merge any synonymous levels before using OMA!
 }

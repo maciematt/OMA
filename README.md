@@ -16,19 +16,23 @@ or from a local copy via
 
 ## Usage
 
-Applicatin of OMA occurs in three stages: 1. data preparation and checking, 2. differential gene expression analysis in each dataset, and 3. meta-analysis of the DGE results from 2.
+Applicatin of OMA occurs in three (or four) stages: (0. building filters, ) 1. data preparation and checking, 2. differential gene expression analysis in each dataset, and 3. meta-analysis of the DGE results from 2.
 
-1. Data prep for each dataset:
+0. Create a filter for the data
 
 ```
 library(OMA)
 
-# 0. Important sample filters!
-sample_filters <- rlang::quo(
-  grepl("skin", tissue) & (sampling_time %in% c("No Info", "W0", "baseline", "pre-treatment")) & (disease_state == "atopic dermatitis")
+build_filter(
+  grepl("skin", tissue) &
+  (sampling_time %in% c("No Info", "W0", "baseline", "pre-treatment")) &
+  (disease_state == "atopic dermatitis")
 )
+```
 
-## 1. Preparing each dataset
+1. Data prep for each dataset
+
+```
 ad_for_dge <- lapply(1:length(ad_datasets), function (x) {
   prepare_for_dge(
     dataset = ad_datasets[[x]], ## each dataset is a list where the first member is the metadata, and the second member is the tx data
@@ -41,17 +45,17 @@ ad_for_dge <- lapply(1:length(ad_datasets), function (x) {
 })
 ```
 
-2. DGE analysis:
+2. DGE analysis
 
 ```
 ad_dge <- lapply(ad_for_dge, run_dge)
 ```
 
-3. Meta-analysis:
+3. Meta-analysis
 
 ```
 ad_ma <- run_ma(ad_dge, es_var = "coeff", parallel = TRUE)
 ```
 
-That's it. The resulting list can be accessed via `ma$ma`.
+That's it. The resulting list can be accessed via `ad_ma$ma`.
 

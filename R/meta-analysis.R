@@ -8,7 +8,24 @@
 
 
 
-prepare_for_dge <- function (dataset, dataset_name, contrast, technology = c("microarray", "RNA-seq"), sample_col = "sample_name", covariates = NULL, scrutinize_covariates = FALSE, blocks = NULL, scrutinize_blocks = FALSE, sample_filters = NULL, min_genes_to_keep_dataset = 5, min_samples_per_level = 2, fix_NA = c("none", "mean"), filter_genes = TRUE, annotation_db = hgu133plus2.db::hgu133plus2.db, translate_to_entrez = TRUE) {
+prepare_for_dge <- function (
+  dataset,
+  dataset_name,
+  contrast,
+  technology = c("microarray", "RNA-seq"),
+  sample_col = "sample_name",
+  covariates = NULL,
+  scrutinize_covariates = FALSE,
+  blocks = NULL,
+  scrutinize_blocks = FALSE,
+  sample_filters = NULL,
+  min_genes_to_keep_dataset = 5,
+  min_samples_per_level = 2,
+  fix_NA = c("none", "mean"),
+  filter_genes = TRUE,
+  annotation_db = hgu133plus2.db::hgu133plus2.db,
+  translate_to_entrez = TRUE
+) {
 
   #' Remember to pre-merge any synonymous contrast levels before using OMA!
   #'
@@ -25,7 +42,7 @@ prepare_for_dge <- function (dataset, dataset_name, contrast, technology = c("mi
 
   technology <- match.arg(technology)
 
-  if (!is.null(sample_filters) & !rlang::is_quosure(sample_filters)) { stop("`sample_filters` needs to be a quosure!") }
+  if (!is.null(sample_filters) & !rlang::is_quosure(sample_filters)) { stop("`sample_filters` needs to be a quosure - create it using the `create_filter` function!") }
   if (!is.list(contrast) | (length(contrast) != 3) | !all(names(contrast) == c("variable", "active", "reference"))) { stop("`contrast` needs to be a 3-value list, with the following properties: \"variable\" (the name of the contrast variable in the data), \"active\" (the active level(s) of the contrast), \"reference\" (reference level(s) of the contrast).") }
   if (!is.null(covariates) & !is.vector(covariates)) { stop("`covariates` needs to be a vector of covariates that will be used in dataset!") }
   if (!is.null(blocks) & !is.vector(blocks)) { stop("`blocks` needs to be a vector of blocks that will be used across all datasets!") }
@@ -89,7 +106,9 @@ prepare_for_dge <- function (dataset, dataset_name, contrast, technology = c("mi
     blocks = blocks,
     fix_NA = fix_NA,
     dataset_name = dataset_name,
-    filter = filter, annotation_db = annotation_db, translate_to_entrez = translate_to_entrez
+    filter = filter,
+    annotation_db = annotation_db,
+    translate_to_entrez = translate_to_entrez
   )
 
 
@@ -447,7 +466,11 @@ run_dge <- function (ge_object) {
 
 
 
-run_dgsva <- function (ge_object, gene_sets = NULL, translate_to_entrezid = NULL) {
+run_dgsva <- function (
+  ge_object,
+  gene_sets = NULL,
+  translate_to_entrezid = NULL
+) {
 
   #' `run_dgsva`, as in "run differential GSVA".
   #' Here using gsva and limma.
@@ -585,7 +608,19 @@ run_dgsva <- function (ge_object, gene_sets = NULL, translate_to_entrezid = NULL
 
 
 
-run_ma <- function (diff_results, id_var = "gene", es_var = "coeff", variance_var = NULL, se_var = NULL, p_adj_method = c("BH", p.adjust.methods), Q_p_cutoff = 0.05, inclusion_cutoff = 1, parallel = FALSE, n_cores = future::availableCores() - 1) {
+run_ma <- function (
+  diff_results,
+  id_var = "gene",
+  es_var = "coeff",
+  variance_var = NULL,
+  se_var = NULL,
+  p_adj_method = c("BH",
+  p.adjust.methods),
+  Q_p_cutoff = 0.05,
+  inclusion_cutoff = 1,
+  parallel = FALSE,
+  n_cores = future::availableCores() - 1
+) {
 
   #' `run_ma` uses metafor's `rma` and `rma.mv` for meta-analysis.
   #'
@@ -733,9 +768,11 @@ run_ma <- function (diff_results, id_var = "gene", es_var = "coeff", variance_va
 
 
   ma_object <- tibble(idvar = names(ma_ready)) %>% bind_cols(
-    tibble(n_datasets = sapply(ma_ready, nrow), datasets = sapply(ma_ready, function (x) x$dataset %>% list))
+    tibble(
+      n_datasets = sapply(ma_ready, nrow),
+      datasets = sapply(ma_ready, function (x) x$dataset %>% list)
+    )
   ) %>% bind_cols(
-    # ma_results %>% map(function (x) {
     ma_results %>% lapply(function (x) {
 
       if (is.null(x$ma_fixed$error)) {
@@ -759,7 +796,7 @@ run_ma <- function (diff_results, id_var = "gene", es_var = "coeff", variance_va
     hybrid_adj_pval = ifelse(!is.na(QEp) & (QEp < Q_p_cutoff), random_pval, fixed_pval) %>% p.adjust(method = p_adj_method),
     hybrid_es = ifelse(!is.na(QEp) & (QEp < Q_p_cutoff), random_es, fixed_es),
     hybrid_se = ifelse(!is.na(QEp) & (QEp < Q_p_cutoff), random_se, fixed_se)
-  )
+  ) ## ma_object
 
   filtered_adj_p <- inclusion_cutoff:max(ma_object$n_datasets) %>% lapply(function (cutoff) {
     ma_object %>% filter(n_datasets >= cutoff) %>% select(idvar, fixed_pval, random_pval, QEp) %>%
@@ -785,4 +822,3 @@ run_ma <- function (diff_results, id_var = "gene", es_var = "coeff", variance_va
   )
 
 }
-

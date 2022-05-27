@@ -2,7 +2,11 @@
 #' @import dplyr
 #' @export translate_probes
 #' @export nsfilter_oma
+#' @export build_filter
 
+
+
+build_filter <- rlang::quo
 
 
 translate_probes <- function (d_expr, probe_id, from_id = "PROBEID", to_id = "ENTREZID", target_name = NULL, weighted_average = FALSE, annotation_db = hgu133plus2.db::hgu133plus2.db) {

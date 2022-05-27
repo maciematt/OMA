@@ -5,8 +5,7 @@
 \title{`run_ma` uses metafor's `rma` and `rma.mv` for meta-analysis.}
 \usage{
 run_ma(
-  dat_results,
-  dat_levels = NULL,
+  diff_results,
   id_var = "gene",
   es_var = "coeff",
   variance_var = NULL,

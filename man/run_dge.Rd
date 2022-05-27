@@ -4,10 +4,10 @@
 \alias{run_dge}
 \title{Here using limma for #1.}
 \usage{
-run_dge(ge_objects, technology = NULL)
+run_dge(ge_object)
 }
 \arguments{
-\item{`technology`}{needs to be a vector of "microarray" or "RNA-seq" values corresponding to the technologies in the corresponding members of `ge_objects`. If left at NULL, all datasets in `ge_objects` are assumed to be from microarrays.
+\item{`technology`}{needs to be a vector of "microarray" or "RNA-seq" values corresponding to the technologies in the corresponding members of `ge_object`. If left at NULL, all datasets in `ge_object` are assumed to be from microarrays.
 
 *Could be passing in a concrete contrast argument instead with a more
 complex contrast once needed (when/if implementing, remember that these
