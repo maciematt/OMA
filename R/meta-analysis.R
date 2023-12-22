@@ -1,10 +1,11 @@
 
 
 #' @import dplyr
+#' @export prepare_for_dge
 #' @export run_dge
 #' @export run_dgsva
 #' @export run_ma
-#' @export prepare_for_dge
+#' @export
 
 
 

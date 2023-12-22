@@ -3,6 +3,7 @@
 #' @export translate_probes
 #' @export nsfilter_oma
 #' @export build_filter
+#' @export
 
 
 
@@ -15,6 +16,8 @@ translate_probes <- function (d_expr, probe_id, from_id = "PROBEID", to_id = "EN
   #' @param probe_id - The name of the column that holds the probe ids.
   #' @param to_id - id type to which probes will be translated.
   #' @param target_name - the name of the column with the translated ID's (by default same as `to_id`)
+  #' 
+  #' Convert between probe formats.
 
   if (is.null(target_name))
     target_name <- to_id
