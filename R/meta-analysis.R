@@ -12,6 +12,7 @@ prepare_for_dge <- function (
   dataset,
   dataset_name,
   contrast,
+  regression_type = c("logistic", "linear"),
   technology = c("microarray", "RNA-seq"),
   sample_col = "sample_name",
   covariates = NULL,
@@ -21,6 +22,7 @@ prepare_for_dge <- function (
   sample_filters = NULL,
   min_genes_to_keep_dataset = 5,
   min_samples_per_level = 2,
+  min_samples = 5,
   fix_NA = c("none", "mean"),
   filter_genes = TRUE,
   annotation_db = hgu133plus2.db::hgu133plus2.db,
@@ -30,20 +32,32 @@ prepare_for_dge <- function (
   #' Remember to pre-merge any synonymous contrast levels before using OMA!
   #'
   #' dataset - this needs to ba a list of dataset objects.
-  #' dataset_name - this needs to ba a vector of dataset names - same order as datasets above.
-  #' contrast - a three-member list, where the first filed is the name of the variable to use from "pheno", second is
-  #'   the name of the active level in the contrast, and the third is the name of the reference level.
-  #' sample_filters - a quosure of filters; previously this was a string that would be passed into dplyr's `filter_()`;
-  #'   however, `filter_()` was deprecated, and this was quite error-prone anyway, as it required a double qotations in
-  #'   and similar risky business in the case of strings. So now a full expression is expected that goes directly into
-  #'   dplyr's `filter()` - send it in inside `rlang::quo()` which will make it a quosure.
+  #' dataset_name - this needs to ba a vector of dataset names - same order as
+  #'   datasets above.
+  #' contrast - if `regression_type` is "logistic" a three-member list, if 
+  #'   "linear" one-memebered list, where (in both cases) the first field is 
+  #'   the name of the  variable to use from "pheno", then in "logistic" the 
+  #'   second is the name of the active level in the contrast, and the third is
+  #'   the name of the reference level.
+  #' sample_filters - a quosure of filters; previously this was a string that
+  #'   would be passed into dplyr's `filter_()`; however, `filter_()` was de-
+  #'   precated, and this was quite error-prone anyway, as it required a double
+  #'   qotations in and similar risky business in the case of strings. So now a
+  #'   full expression is expected that goes directly into dplyr's `filter()` -
+  #'   send it in inside `rlang::quo()` which will make it a quosure.
   #' response_variable - informs which variable is the one to use as a contrast
 
 
   technology <- match.arg(technology)
+  regression_type <- match.arg(regression_type)
 
   if (!is.null(sample_filters) & !rlang::is_quosure(sample_filters)) { stop("`sample_filters` needs to be a quosure - create it using the `create_filter` function!") }
-  if (!is.list(contrast) | (length(contrast) != 3) | !all(names(contrast) == c("variable", "active", "reference"))) { stop("`contrast` needs to be a 3-value list, with the following properties: \"variable\" (the name of the contrast variable in the data), \"active\" (the active level(s) of the contrast), \"reference\" (reference level(s) of the contrast).") }
+
+  if (regression_type == "logistic")
+    if (!is.list(contrast) | (length(contrast) != 3) | !all(names(contrast) == c("variable", "active", "reference"))) { stop("For logistic regression, `contrast` needs to be a 3-value list, with the following properties: \"variable\" (the name of the contrast variable in the data), \"active\" (the active level(s) of the contrast), \"reference\" (reference level(s) of the contrast).") }
+  else if (regression_type == "linear")
+    if (!is.list(contrast) | (length(contrast) != 1) | !all(names(contrast) == c("variable"))) { stop("For linear regression, `contrast` needs to be a 1-value list, with the following property: \"variable\" (the name of the contrast variable in the data).") }
+
   if (!is.null(covariates) & !is.vector(covariates)) { stop("`covariates` needs to be a vector of covariates that will be used in dataset!") }
   if (!is.null(blocks) & !is.vector(blocks)) { stop("`blocks` needs to be a vector of blocks that will be used across all datasets!") }
   if(is.vector(blocks) & (length(blocks) != 1)) { stop("If `blocks` is a vector, than it needs to be a vector of length 1 (only a single variable can be used to identify duplicates).") }
@@ -64,8 +78,11 @@ prepare_for_dge <- function (
   # )
 
   response_variable <- contrast[["variable"]]
-  active_levels <- contrast[["active"]]
-  reference_levels <- contrast[["reference"]]
+
+  if (regression_type == "logistic") {
+    active_levels <- contrast[["active"]]
+    reference_levels <- contrast[["reference"]]
+  }
 
 
   fix_NA <- match.arg(fix_NA)
@@ -77,7 +94,11 @@ prepare_for_dge <- function (
   if (!is.null(covariates) & scrutinize_covariates) {
     remaining_covariates <- intersect(covariates, colnames(dataset$sample_data))
     if (length(remaining_covariates) > 0)
-      remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(x) %>% as.character %>% unique %>% length >= 2)]
+      if (regression_type == "logistic")
+        remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(x) %>% as.character %>% unique %>% length >= 2)]
+      else
+        ## for linear regression still requesting that a given covariate is represented in at least two observations
+        remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% filter(tidyr::drop_na(!!rlang::sym(response_variable))) %>% pull(x) %>% length >= 2)]
     if (length(remaining_covariates) == 0)
       remaining_covariates <- NULL
     covariates <- remaining_covariates
@@ -87,7 +108,10 @@ prepare_for_dge <- function (
   if (!is.null(blocks) & scrutinize_blocks) {
     remaining_blocks <- intersect(blocks, colnames(dataset$sample_data))
     if (length(remaining_blocks) > 0)
-      remaining_blocks <- remaining_blocks[remaining_blocks %>% sapply(function (x) dataset$sample_data %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(x) %>% as.character %>% unique %>% length >= 2)]
+      if (regression_type == "logistic")
+        remaining_blocks <- remaining_blocks[remaining_blocks %>% sapply(function (x) dataset$sample_data %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(x) %>% as.character %>% unique %>% length >= 2)]
+      else
+        remaining_blocks <- remaining_blocks[remaining_blocks %>% sapply(function (x) dataset$sample_data %>% filter(dplyr::drop_na(!!rlang::sym(response_variable))) %>% pull(x) %>% length >= 2)]
     if (length(remaining_blocks) == 0)
       remaining_blocks <- NULL
     blocks <- remaining_blocks
@@ -98,6 +122,7 @@ prepare_for_dge <- function (
     run_date = date(),
     min_genes_to_keep_dataset = min_genes_to_keep_dataset,
     min_samples_per_level = min_samples_per_level,
+    min_samples = min_samples,
     contrast = contrast,
     technology = technology,
     scrutinize_covariates = scrutinize_covariates,
@@ -165,25 +190,38 @@ prepare_for_dge <- function (
   print("response variable bit")
   print(data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character %>% unique)
 
-  data_obj$status$less_than_2_response_levels <- data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character %>% unique %>% length < 2
+  data_obj$status$less_than_2_response_levels <- ifelse(
+    regression_type == "linear",
+    NA,
+    data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character %>% unique %>% length < 2
+  )
   print("less than 2 required levels?")
   print(data_obj$status$less_than_2_response_levels)
 
-  data_obj$status$less_than_min_samples_per_level <- (function () {
-    tmp_dat <- data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character
-    lvls <- tmp_dat %>% unique
-    sapply(lvls, function (lvl) {
-      length(tmp_dat[tmp_dat == lvl]) < min_samples_per_level
-    }) %>% unlist %>% unname %>% any
-  })()
+  data_obj$status$less_than_min_samples_per_level <- ifelse(
+    regression_type == "linear",
+    NA,
+    (function () {
+      tmp_dat <- data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character
+      lvls <- tmp_dat %>% unique
+      sapply(lvls, function (lvl) {
+        length(tmp_dat[tmp_dat == lvl]) < min_samples_per_level
+      }) %>% unlist %>% unname %>% any
+    })()
+  )
+
+  data_obj$status$less_than_min_samples <- data_obj[["pheno"]] %>% filter(!is_na(!!rlang::sym(response_variable))) %>% pull(!!response_variable) %>% length < min_samples
 
   if (data_obj$status$less_than_2_response_levels) {
     cat(paste0("Less than 2 levels present in the response variable! Eliminating dataset ", dataset_name, "\n"))
   }
+  if (data_obj$status$less_than_min_samples) {
+    cat(paste0("Less than the minimal specified number (", min_samples, ") samples! Eliminating dataset ", dataset_name, "\n"))
+  }
   if (data_obj$status$less_than_min_samples_per_level) {
     cat(paste0("Less than ", min_samples_per_level, " samples with a given response level present in the response variable! Eliminating dataset ", dataset_name, "\n"))
   }
-  if (data_obj$status$less_than_2_response_levels | data_obj$status$less_than_min_samples_per_level) {
+  if (data_obj$status$less_than_2_response_levels | data_obj$status$less_than_min_samples_per_level | data_obj$status$less_than_min_samples) {
     data_obj$status$keep <- FALSE
     return(data_obj)
   }
