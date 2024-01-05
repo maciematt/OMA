@@ -32,7 +32,8 @@ prepare_for_dge <- function (
 
   #' Remember to pre-merge any synonymous contrast levels before using OMA!
   #'
-  #' dataset - this needs to ba a list of dataset objects.
+  #' dataset - this needs to ba a list representing a dataset object with two
+  #'   fields: "gene_expression_data", and "sample_data".
   #' dataset_name - this needs to ba a vector of dataset names - same order as
   #'   datasets above.
   #' contrast - if `regression_type` is "logistic" a three-member list, if 
@@ -163,37 +164,37 @@ prepare_for_dge <- function (
   print(data_obj$status)
 
 
-  ## Checking if pheno meets the criteria --------------------------------- ##
+  ## Checking if pheno meets the criteria ----------------------------------- ##
 
   if (!is.null(sample_filters))
     data_obj[["pheno"]] <- data_obj[["pheno"]] %>% filter(!!sample_filters) %>% as.data.frame
 
-  # data_obj[["pheno"]][, response_variable] <- factor(data_obj[["pheno"]][, response_variable])
-  # data_obj[["pheno"]] <- data_obj[["pheno"]] %>% mutate(!!quo_name(response_variable) := factor(!!rlang::sym(response_variable)))
   data_obj[["pheno"]] <- data_obj[["pheno"]] %>% mutate(!!response_variable := factor(!!rlang::sym(response_variable)))
 
-
-  # print(data_obj[["pheno"]][, c("sample_name", "tissue", "disease_state", "cell_type", "sample_pathology")] %>% head)
-
+  ## For uniformity, changing the key sample column name to "sample_name"
   data_obj[["pheno"]] <- data_obj[["pheno"]] %>% rename(sample_name := !!sample_col)
 
   c_n <- unname(unlist(data_obj[["pheno"]]$sample_name))
   rownames(data_obj[["pheno"]]) <- c_n
 
-
   PHENO_EXPR_SAMPLE_NAME_INTERSECT <- intersect(c_n, dataset$gene_expression_data %>% rownames)
 
-
-  data_obj[["pheno"]] <- data_obj[["pheno"]][PHENO_EXPR_SAMPLE_NAME_INTERSECT, ]
-
+  # data_obj[["pheno"]] <- data_obj[["pheno"]][PHENO_EXPR_SAMPLE_NAME_INTERSECT, ]
+  data_obj[["pheno"]] <- data_obj[["pheno"]] %>%
+    filter(sample_name %in% PHENO_EXPR_SAMPLE_NAME_INTERSECT) %>%
+    arrange(match(sample_name, PHENO_EXPR_SAMPLE_NAME_INTERSECT)) %>%
+    as.data.frame
+  
+  rownames(data_obj[["pheno"]]) <- PHENO_EXPR_SAMPLE_NAME_INTERSECT
+  
   print(levels(as.factor(unname(unlist(data_obj[["pheno"]][, response_variable])))))
 
   print("response variable bit")
-  print(data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character %>% unique)
+  # print(data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character %>% unique)
 
   data_obj$status$less_than_2_response_levels <- ifelse(
     regression_type == "linear",
-    NA,
+    FALSE, # should be NA, going with FALSE to slot into the existing logic
     data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character %>% unique %>% length < 2
   )
   print("less than 2 required levels?")
@@ -201,7 +202,7 @@ prepare_for_dge <- function (
 
   data_obj$status$less_than_min_samples_per_level <- ifelse(
     regression_type == "linear",
-    NA,
+    FALSE, # should be NA, going with FALSE to slot into the existing logic
     (function () {
       tmp_dat <- data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character
       lvls <- tmp_dat %>% unique
@@ -211,7 +212,7 @@ prepare_for_dge <- function (
     })()
   )
 
-  data_obj$status$less_than_min_samples <- data_obj[["pheno"]] %>% filter(!is_na(!!rlang::sym(response_variable))) %>% pull(!!response_variable) %>% length < min_samples
+  data_obj$status$less_than_min_samples <- data_obj[["pheno"]] %>% filter(!is.na(!!rlang::sym(response_variable))) %>% pull(!!response_variable) %>% length < min_samples
 
   if (data_obj$status$less_than_2_response_levels) {
     cat(paste0("Less than 2 levels present in the response variable! Eliminating dataset ", dataset_name, "\n"))
@@ -230,10 +231,10 @@ prepare_for_dge <- function (
 
   c_n <- rownames(data_obj[["pheno"]])
 
-  ## ---------------------------------------------------------------------- ##
+  ## ------------------------------------------------------------------------ ##
 
 
-  ## Expression data ------------------------------------------------------ ##
+  ## Expression data -------------------------------------------------------- ##
 
   data_obj$expr <- (dataset$gene_expression_data %>% as.data.frame)[PHENO_EXPR_SAMPLE_NAME_INTERSECT, ]
 
@@ -283,11 +284,9 @@ prepare_for_dge <- function (
   colnames(data_obj[["expr"]]) <- PHENO_EXPR_SAMPLE_NAME_INTERSECT
   rownames(data_obj[["expr"]]) <- r_n
 
+  ## EXPRESSION DATA FILTERING ---------------------------------------------- ##
 
-
-  ## EXPRESSION DATA FILTERING --------------------------------------------- ##
-
-  ## filter_genes -------------------------------------------------------------- ##
+  ## filter_genes ----------------------------------------------------------- ##
   if (isTRUE(filter_genes) & technology == "microarray") {
     ## nsFilter pollutes the session by attaching a lot of packages, so we call this garbage as a separate session
     annotation_txt <- annotation_db$packageName
@@ -305,10 +304,10 @@ prepare_for_dge <- function (
     )
     data_obj[["expr"]] <- readRDS(oma_tempdata)
   }
-  ## ----------------------------------------------------------------------- ##
+  ## ------------------------------------------------------------------------ ##
 
 
-  ## translate_to_entrez ------------------------------------------------------ ##
+  ## translate_to_entrez ---------------------------------------------------- ##
   if (isTRUE(translate_to_entrez)) {
 
     if (technology == "microarray") {
@@ -321,9 +320,9 @@ prepare_for_dge <- function (
     data_obj[["expr"]] <- d_ex %>% select(-1) %>% as.data.frame %>% as.matrix
     rownames(data_obj[["expr"]]) <- entrez_names
   }
-  ## ----------------------------------------------------------------------- ##
+  ## ------------------------------------------------------------------------ ##
 
-  ## ----------------------------------------------------------------------- ##
+  ## ------------------------------------------------------------------------ ##
 
 
 
@@ -342,7 +341,7 @@ prepare_for_dge <- function (
   colnames(data_obj[["expr"]]) <- c_n
   rownames(data_obj[["expr"]]) <- r_n
 
-  ## ---------------------------------------------------------------------- ##
+  ## ------------------------------------------------------------------------ ##
 
 
   print(paste0("dim: ", dim(data_obj[["expr"]])))
