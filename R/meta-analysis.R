@@ -13,7 +13,7 @@ prepare_for_dge <- function (
   dataset,
   dataset_name,
   contrast,
-  regression_type = c("logistic", "linear"),
+  contrast_type = c("binary", "numeric"),
   technology = c("microarray", "RNA-seq"),
   sample_col = "sample_name",
   covariates = NULL,
@@ -36,9 +36,9 @@ prepare_for_dge <- function (
   #'   fields: "gene_expression_data", and "sample_data".
   #' dataset_name - this needs to ba a vector of dataset names - same order as
   #'   datasets above.
-  #' contrast - if `regression_type` is "logistic" a three-member list, if 
-  #'   "linear" one-memebered list, where (in both cases) the first field is 
-  #'   the name of the  variable to use from "pheno", then in "logistic" the 
+  #' contrast - if `contrast_type` is "binary" a three-member list, if 
+  #'   "numeric" one-memebered list, where (in both cases) the first field is 
+  #'   the name of the  variable to use from "pheno", then in "binary" the
   #'   second is the name of the active level in the contrast, and the third is
   #'   the name of the reference level.
   #' sample_filters - a quosure of filters; previously this was a string that
@@ -51,14 +51,14 @@ prepare_for_dge <- function (
 
 
   technology <- match.arg(technology)
-  regression_type <- match.arg(regression_type)
+  contrast_type <- match.arg(contrast_type)
 
   if (!is.null(sample_filters) & !rlang::is_quosure(sample_filters)) { stop("`sample_filters` needs to be a quosure - create it using the `create_filter` function!") }
 
-  if (regression_type == "logistic")
-    if (!is.list(contrast) | (length(contrast) != 3) | !all(names(contrast) == c("variable", "active", "reference"))) { stop("For logistic regression, `contrast` needs to be a 3-value list, with the following properties: \"variable\" (the name of the contrast variable in the data), \"active\" (the active level(s) of the contrast), \"reference\" (reference level(s) of the contrast).") }
-  else if (regression_type == "linear")
-    if (!is.list(contrast) | (length(contrast) != 1) | !all(names(contrast) == c("variable"))) { stop("For linear regression, `contrast` needs to be a 1-value list, with the following property: \"variable\" (the name of the contrast variable in the data).") }
+  if (contrast_type == "binary")
+    if (!is.list(contrast) | (length(contrast) != 3) | !all(names(contrast) == c("variable", "active", "reference"))) { stop("For a binary contrast, `contrast` needs to be a 3-value list, with the following properties: \"variable\" (the name of the contrast variable in the data), \"active\" (the active level(s) of the contrast), \"reference\" (reference level(s) of the contrast).") }
+  else if (contrast_type == "numeric")
+    if (!is.list(contrast) | (length(contrast) != 1) | !all(names(contrast) == c("variable"))) { stop("For a numeric contrast, `contrast` needs to be a 1-value list, with the following property: \"variable\" (the name of the contrast variable in the data).") }
 
   if (!is.null(covariates) & !is.vector(covariates)) { stop("`covariates` needs to be a vector of covariates that will be used in dataset!") }
   if (!is.null(blocks) & !is.vector(blocks)) { stop("`blocks` needs to be a vector of blocks that will be used across all datasets!") }
@@ -81,7 +81,7 @@ prepare_for_dge <- function (
 
   response_variable <- contrast[["variable"]]
 
-  if (regression_type == "logistic") {
+  if (contrast_type == "binary") {
     active_levels <- contrast[["active"]]
     reference_levels <- contrast[["reference"]]
   }
@@ -96,10 +96,10 @@ prepare_for_dge <- function (
   if (!is.null(covariates) & scrutinize_covariates) {
     remaining_covariates <- intersect(covariates, colnames(dataset$sample_data))
     if (length(remaining_covariates) > 0)
-      if (regression_type == "logistic")
+      if (contrast_type == "binary")
         remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(x) %>% as.character %>% unique %>% length >= 2)]
       else
-        ## for linear regression still requesting that a given covariate is represented in at least two observations
+        ## for a binary contrast still requesting that a given covariate is represented in at least two observations
         remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% filter(tidyr::drop_na(!!rlang::sym(response_variable))) %>% pull(x) %>% length >= 2)]
     if (length(remaining_covariates) == 0)
       remaining_covariates <- NULL
@@ -110,7 +110,7 @@ prepare_for_dge <- function (
   if (!is.null(blocks) & scrutinize_blocks) {
     remaining_blocks <- intersect(blocks, colnames(dataset$sample_data))
     if (length(remaining_blocks) > 0)
-      if (regression_type == "logistic")
+      if (contrast_type == "binary")
         remaining_blocks <- remaining_blocks[remaining_blocks %>% sapply(function (x) dataset$sample_data %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(x) %>% as.character %>% unique %>% length >= 2)]
       else
         remaining_blocks <- remaining_blocks[remaining_blocks %>% sapply(function (x) dataset$sample_data %>% filter(dplyr::drop_na(!!rlang::sym(response_variable))) %>% pull(x) %>% length >= 2)]
@@ -126,6 +126,7 @@ prepare_for_dge <- function (
     min_samples_per_level = min_samples_per_level,
     min_samples = min_samples,
     contrast = contrast,
+    contrast_type = contrast_type,
     technology = technology,
     scrutinize_covariates = scrutinize_covariates,
     covariates = covariates,
@@ -193,7 +194,7 @@ prepare_for_dge <- function (
   # print(data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character %>% unique)
 
   data_obj$status$less_than_2_response_levels <- ifelse(
-    regression_type == "linear",
+    contrast_type == "numeric",
     FALSE, # should be NA, going with FALSE to slot into the existing logic
     data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character %>% unique %>% length < 2
   )
@@ -201,7 +202,7 @@ prepare_for_dge <- function (
   print(data_obj$status$less_than_2_response_levels)
 
   data_obj$status$less_than_min_samples_per_level <- ifelse(
-    regression_type == "linear",
+    contrast_type == "numeric",
     FALSE, # should be NA, going with FALSE to slot into the existing logic
     (function () {
       tmp_dat <- data_obj[["pheno"]] %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(!!response_variable) %>% as.character
@@ -407,10 +408,6 @@ run_dge <- function (ge_object) {
 
   # ge_results <- lapply(1:length(ge_object$data), function (d_num) {
 
-  active_nicename <- make.names(contrast_info[["active"]])
-  reference_nicename <- make.names(contrast_info[["reference"]])
-  contrast_nicename <- paste0(active_nicename, "-", reference_nicename)
-
   tech <- ge_info$technology
 
   ge_data <- ge_object$data
@@ -436,12 +433,14 @@ run_dge <- function (ge_object) {
   # print(ge_data[["pheno"]][, "gender"])
 
   mm <- model.matrix(ge_f)
-  colnames(mm)[1:length(levels(ge_data[["pheno"]][, contrast_info$variable, drop = TRUE]))] <- levels(ge_data[["pheno"]][, contrast_info$variable, drop = TRUE])
+  if (length(contrast_info) == 3) ## this is the case only for binary contrasts
+    colnames(mm)[1:length(levels(ge_data[["pheno"]][, contrast_info$variable, drop = TRUE]))] <- levels(ge_data[["pheno"]][, contrast_info$variable, drop = TRUE])
   colnames(mm) <- make.names(colnames(mm))
 
   print(colnames(mm))
 
-  con <- limma::makeContrasts(contrasts = contrast_nicename, levels = mm)
+  if (length(contrast_info) == 3) ## this is the case only for binary contrasts
+    con <- limma::makeContrasts(contrasts = contrast_nicename, levels = mm)
 
 
   if (tech == "RNA-seq")
@@ -460,38 +459,45 @@ run_dge <- function (ge_object) {
     }
   }
 
-  limma_out <- limma::eBayes(
-    limma::contrasts.fit(
+  if (length(contrast_info) == 3)
+    limma_realized <- limma::contrasts.fit(
       lmfit_realized,
       con
     )
-  )
+
+  limma_out <- limma::eBayes(limma_realized)
 
   # limma::topTable(limma_out, number = Inf) %>% tibble::rownames_to_column(var = "gene") %>% head
 
 
-  active_n <- ge_data$expr[rownames(limma_out$coefficients), ge_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$active) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
-    lapply(function (x) {
-      x[!is.na(x)] %>% length
-    }) %>% unlist %>% unname
+  diff_data_out <- tibble(
+    gene = rownames(limma_out$coefficients),
+    coeff = limma_out$coefficients %>% as.vector,
+    p_value = limma_out$p.value %>% as.vector,
+    cohen_d = limma_out$coefficients[, 1] / sqrt(limma_out$s2.post), # As recommended by Gordon Smyth: https://support.bioconductor.org/p/71747/
+    variance = limma_out$s2.post * limma_out$stdev.unscaled[, 1]^2, # --||-- in https://support.bioconductor.org/p/70175/
+    active_n = active_n,
+    reference_n = reference_n
+  )
 
-  reference_n <- ge_data$expr[rownames(limma_out$coefficients), ge_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$reference) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
-    lapply(function (x) {
-      x[!is.na(x)] %>% length
-    }) %>% unlist %>% unname
+
+  if (length(contrast_info) == 3) {
+    diff_data_out$active_n <- ge_data$expr[rownames(limma_out$coefficients), ge_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$active) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
+      lapply(function (x) {
+        x[!is.na(x)] %>% length
+      }) %>% unlist %>% unname
+
+    diff_data_out$reference_n <- ge_data$expr[rownames(limma_out$coefficients), ge_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$reference) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
+      lapply(function (x) {
+        x[!is.na(x)] %>% length
+      }) %>% unlist %>% unname
+  }
+
 
 
   ge_results <- structure(
     list(
-      diff_data = tibble(
-        gene = rownames(limma_out$coefficients),
-        coeff = limma_out$coefficients %>% as.vector,
-        p_value = limma_out$p.value %>% as.vector,
-        cohen_d = limma_out$coefficients[, 1] / sqrt(limma_out$s2.post), # As recommended by Gordon Smyth: https://support.bioconductor.org/p/71747/
-        variance = limma_out$s2.post * limma_out$stdev.unscaled[, 1]^2, # --||-- in https://support.bioconductor.org/p/70175/
-        active_n = active_n,
-        reference_n = reference_n
-      ),
+      diff_data = diff_data_out,
       dataset_name = ge_object$dataset_name,
       technology = tech
     ), class = "diff_results"
@@ -544,10 +550,6 @@ run_dgsva <- function (
 
 
   # diff_results <- lapply(1:length(ge_object$data), function (d_num) {
-
-  active_nicename <- make.names(contrast_info[["active"]])
-  reference_nicename <- make.names(contrast_info[["reference"]])
-  contrast_nicename <- paste0(active_nicename, "-", reference_nicename)
 
   tech <- ge_object$technology
 
