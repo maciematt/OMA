@@ -3,6 +3,7 @@
 #' @export translate_probes
 #' @export nsfilter_oma
 #' @export build_filter
+#' @export geneset_get
 #' @export
 
 
@@ -51,4 +52,25 @@ nsfilter_oma <- function (data_expr, data_pheno, samples, annotation) {
   )
 
   return (as.matrix(exprs(d_bes_f$eset)))
+}
+
+
+
+geneset_get <- function (gene_sets) {
+
+  if (is.null(gene_sets)) {
+    data(c2BroadSets, package = "GSVAdata")
+    kegg_reactome <- c2BroadSets[c(grep("^KEGG", names(c2BroadSets)), grep("^REACTOME", names(c2BroadSets)))]
+    hallmark <- msigdbr::msigdbr(species = "Homo sapiens", category = c("H"))
+    select <- dplyr::select
+    deframe <- tibble::deframe
+    hallmark <- hallmark %>% select(gs_name, entrez_gene) %>% nest_by(gs_name) %>% select(gs_name, data) %>% deframe %>% purrr::map(~ pull(.x) %>% unique)
+    hallmark <- purrr::map(names(hallmark), ~ GSEABase::GeneSet(as.character(hallmark[[.x]]), setName = .x, geneIdType = GSEABase::EntrezIdentifier())) %>% GSEABase::GeneSetCollection()
+    gene_sets <- c(kegg_reactome, hallmark) %>% GSEABase::GeneSetCollection()
+  } else if (gene_sets == "REACTOME") {
+    data(c2BroadSets, package = "GSVAdata")
+    gene_sets <- c2BroadSets[grep("^REACTOME", names(c2BroadSets))]
+  }
+
+  return (gene_sets)
 }

@@ -17,7 +17,7 @@ prepare_for_dge <- function (
   technology = c("microarray", "RNA-seq"),
   sample_col = "sample_name",
   covariates = NULL,
-  scrutinize_covariates = FALSE,
+  scrutinize_covariates = TRUE,
   blocks = NULL,
   scrutinize_blocks = FALSE,
   sample_filters = NULL,
@@ -97,13 +97,13 @@ prepare_for_dge <- function (
     remaining_covariates <- intersect(covariates, colnames(dataset$sample_data))
     if (length(remaining_covariates) > 0)
       if (contrast_type == "binary")
-        remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(x) %>% as.character %>% unique %>% length >= 2)]
+        remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% filter(!!rlang::sym(response_variable) %in% c(active_levels, reference_levels)) %>% pull(x) %>% as.character %>% na.omit %>% unique %>% length >= 2)]
       else
         ## for a binary contrast still requesting that a given covariate is represented in at least two observations
-        remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% filter(tidyr::drop_na(!!rlang::sym(response_variable))) %>% pull(x) %>% length >= 2)]
-    if (length(remaining_covariates) == 0)
-      remaining_covariates <- NULL
-    covariates <- remaining_covariates
+        remaining_covariates <- remaining_covariates[remaining_covariates %>% sapply(function (x) dataset$sample_data %>% tidyr::drop_na(!!rlang::sym(response_variable)) %>% pull(x) %>% as.character %>% na.omit %>% unique %>% length >= 2)]
+
+    if (!identical(sort(covariates), sort(remaining_covariates)))
+      stop(paste0("Some of the requested covariates cannot be included.\nRequested covariates:\n", paste0(covariates, collapse = ", "), "\nCovariates with >2 levels:\n", paste0(remaining_covariates, collapse = ", ")))
   }
 
 
@@ -140,11 +140,6 @@ prepare_for_dge <- function (
   )
 
 
-  # dge_data <- lapply(1:length(datasets), function (d_num) {
-  #
-  #   d <- datasets
-
-
   if (!all(covariates %in% colnames(dataset$sample_data))) { stop(paste0("Covariates specified for dataset ", dataset_name, " that don't exist in its pheno data")) }
   if (!all(blocks %in% colnames(dataset$sample_data))) { stop(paste0("`blocks` specified for dataset ", dataset_name, " that don't exist in its pheno data")) }
 
@@ -170,7 +165,10 @@ prepare_for_dge <- function (
   if (!is.null(sample_filters))
     data_obj[["pheno"]] <- data_obj[["pheno"]] %>% filter(!!sample_filters) %>% as.data.frame
 
-  data_obj[["pheno"]] <- data_obj[["pheno"]] %>% mutate(!!response_variable := factor(!!rlang::sym(response_variable)))
+  if (contrast_type == "binary")
+    data_obj[["pheno"]] <- data_obj[["pheno"]] %>% mutate(!!response_variable := factor(!!rlang::sym(response_variable)))
+  else if (contrast_type == "numeric")
+    data_obj[["pheno"]] <- data_obj[["pheno"]] %>% mutate(!!response_variable := as.numeric(!!rlang::sym(response_variable)))
 
   ## For uniformity, changing the key sample column name to "sample_name"
   data_obj[["pheno"]] <- data_obj[["pheno"]] %>% rename(sample_name := !!sample_col)
@@ -224,9 +222,10 @@ prepare_for_dge <- function (
   if (data_obj$status$less_than_min_samples_per_level) {
     cat(paste0("Less than ", min_samples_per_level, " samples with a given response level present in the response variable! Eliminating dataset ", dataset_name, "\n"))
   }
+
   if (data_obj$status$less_than_2_response_levels | data_obj$status$less_than_min_samples_per_level | data_obj$status$less_than_min_samples) {
     data_obj$status$keep <- FALSE
-    return(data_obj)
+    stop(paste0("Encountered a problem with the dataset:\n", data_obj$status))
   }
 
 
@@ -342,6 +341,7 @@ prepare_for_dge <- function (
   colnames(data_obj[["expr"]]) <- c_n
   rownames(data_obj[["expr"]]) <- r_n
 
+
   ## ------------------------------------------------------------------------ ##
 
 
@@ -405,6 +405,12 @@ run_dge <- function (ge_object) {
   ge_info <- ge_object$info
   contrast_info <- ge_info$contrast
 
+  if (ge_info$contrast_type == "binary") { ## this is the case only for binary contrasts
+    active_nicename <- make.names(contrast_info[["active"]])
+    reference_nicename <- make.names(contrast_info[["reference"]])
+    contrast_nicename <- paste0(active_nicename, "-", reference_nicename)
+  }
+
 
   # ge_results <- lapply(1:length(ge_object$data), function (d_num) {
 
@@ -412,7 +418,15 @@ run_dge <- function (ge_object) {
 
   ge_data <- ge_object$data
 
+
+  ## Right up front, `model.matrix` is not able to automatically handle any rows with NA's.
+  nonna_rows <- apply(ge_data$pheno[, c(contrast_info$variable, ge_data$covariates), drop = FALSE], 1, function(x) all(!is.na(x)))
+  ge_data$expr <- ge_data$expr[, nonna_rows]
+  ge_data$pheno <- ge_data$pheno[nonna_rows, ]
+
+
   ge_data$expr_ready <- ge_data$expr
+
 
 
   if (tech == "RNA-seq") {
@@ -423,9 +437,13 @@ run_dge <- function (ge_object) {
     ge_data$expr_ready <- tmm
   }
 
-  ge_f <- paste0('~ 0 + ge_data[["pheno"]][, "', contrast_info$variable, '", drop = TRUE]')
+  ge_f <- ifelse(
+    ge_info$contrast_type == "binary",
+    paste0('~ 0 + ge_data[["pheno"]][, "', contrast_info$variable, '", drop = TRUE]'),
+    paste0('~ ge_data[["pheno"]][, "', contrast_info$variable, '", drop = TRUE]')
+  )
   if (!is.null(ge_data$covariates))
-    ge_f <- paste0(ge_f, " + ", sapply(ge_data$covariates, function (x) paste0('ge_data$pheno[, "', x, '", drop = TRUE]')), collapse = " + ")
+    ge_f <- paste0(ge_f, " + ", paste0(sapply(ge_data$covariates, function (x) paste0('ge_data$pheno[, "', x, '", drop = TRUE]')), collapse = " + "))
   ge_f <- as.formula(ge_f)
 
   # print(ge_data[["pheno"]][, contrast_info$variable])
@@ -433,13 +451,17 @@ run_dge <- function (ge_object) {
   # print(ge_data[["pheno"]][, "gender"])
 
   mm <- model.matrix(ge_f)
-  if (length(contrast_info) == 3) ## this is the case only for binary contrasts
+
+  if (ge_info$contrast_type == "binary") ## this is the case only for binary contrasts
     colnames(mm)[1:length(levels(ge_data[["pheno"]][, contrast_info$variable, drop = TRUE]))] <- levels(ge_data[["pheno"]][, contrast_info$variable, drop = TRUE])
+  else if (ge_info$contrast_type == "numeric") ## for the binary contrast, we'll go with the simple variable name
+    colnames(mm)[2] <- contrast_info$variable ## index=2 because of the interecept in the first position
+
   colnames(mm) <- make.names(colnames(mm))
 
   print(colnames(mm))
 
-  if (length(contrast_info) == 3) ## this is the case only for binary contrasts
+  if (ge_info$contrast_type == "binary") ## this is the case only for binary contrasts
     con <- limma::makeContrasts(contrasts = contrast_nicename, levels = mm)
 
 
@@ -459,29 +481,33 @@ run_dge <- function (ge_object) {
     }
   }
 
-  if (length(contrast_info) == 3)
+  if (ge_info$contrast_type == "binary") ## this is the case only for binary contrasts
     limma_realized <- limma::contrasts.fit(
       lmfit_realized,
       con
     )
+  else if (ge_info$contrast_type == "numeric")
+    limma_realized <- lmfit_realized
 
   limma_out <- limma::eBayes(limma_realized)
 
   # limma::topTable(limma_out, number = Inf) %>% tibble::rownames_to_column(var = "gene") %>% head
 
+  ## Note that this is focused on the contrast variable (all the `[, 1]`s or `[, 2]`s below)
+  if (ge_info$contrast_type == "binary")
+    ix_contrast <- 1
+  else if (ge_info$contrast_type == "numeric")
+    ix_contrast <- 2
 
   diff_data_out <- tibble(
     gene = rownames(limma_out$coefficients),
-    coeff = limma_out$coefficients %>% as.vector,
-    p_value = limma_out$p.value %>% as.vector,
-    cohen_d = limma_out$coefficients[, 1] / sqrt(limma_out$s2.post), # As recommended by Gordon Smyth: https://support.bioconductor.org/p/71747/
-    variance = limma_out$s2.post * limma_out$stdev.unscaled[, 1]^2, # --||-- in https://support.bioconductor.org/p/70175/
-    active_n = active_n,
-    reference_n = reference_n
+    coeff = limma_out$coefficients[, ix_contrast] %>% as.vector,
+    p_value = limma_out$p.value[, ix_contrast] %>% as.vector,
+    cohen_d = limma_out$coefficients[, ix_contrast] / sqrt(limma_out$s2.post), # As recommended by Gordon Smyth: https://support.bioconductor.org/p/71747/
+    variance = limma_out$s2.post * limma_out$stdev.unscaled[, ix_contrast]^2 # --||-- in https://support.bioconductor.org/p/70175/
   )
 
-
-  if (length(contrast_info) == 3) {
+  if (ge_info$contrast_type == "binary") { ## this is the case only for binary contrasts
     diff_data_out$active_n <- ge_data$expr[rownames(limma_out$coefficients), ge_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$active) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
       lapply(function (x) {
         x[!is.na(x)] %>% length
@@ -494,10 +520,20 @@ run_dge <- function (ge_object) {
   }
 
 
+  ## I'll need to package these items a little differently for the covariates:
+  diff_data_all_vars <- list(
+    gene = rownames(limma_out$coefficients),
+    coeff = limma_out$coefficients,
+    p_value = limma_out$p.value,
+    cohen_d = limma_out$coefficients / sqrt(limma_out$s2.post), # As recommended by Gordon Smyth: https://support.bioconductor.org/p/71747/
+    variance = limma_out$s2.post * limma_out$stdev.unscaled^2 # --||-- in https://support.bioconductor.org/p/70175/
+  )
+
 
   ge_results <- structure(
     list(
       diff_data = diff_data_out,
+      diff_data_all_vars = diff_data_all_vars,
       dataset_name = ge_object$dataset_name,
       technology = tech
     ), class = "diff_results"
@@ -533,27 +569,40 @@ run_dgsva <- function (
   # lapply(ge_object, check_ge_obj)
 
 
-
-  if (is.null(gene_sets)) {
-    data(c2BroadSets, package = "GSVAdata")
-    kegg_reactome <- c2BroadSets[c(grep("^KEGG", names(c2BroadSets)), grep("^REACTOME", names(c2BroadSets)))]
-    hallmark <- msigdbr::msigdbr(species = "Homo sapiens", category = c("H")) %>% select(gs_name, entrez_gene) %>% nest_by(gs_name) %>% select(gs_name, data) %>% deframe %>% purrr::map(pull)
-    hallmark <- purrr::map(names(hallmark), ~ GSEABase::GeneSet(as.character(hallmark[[.x]]), setName = .x, geneIdType = GSEABase::EntrezIdentifier())) %>% GSEABase::GeneSetCollection()
-    gene_sets <- c(kegg_reactome, hallmark) %>% GSEABase::GeneSetCollection()
-  } else if (gene_sets == "REACTOME") {
-    data(c2BroadSets, package = "GSVAdata")
-    gene_sets <- c2BroadSets[grep("^REACTOME", names(c2BroadSets))]
-  }
+  gene_sets_for_getter <- ifelse(is.null(gene_sets), "NULL", paste0('c("', paste0(gene_sets, collapse = '", "'), '")'))
+  oma_tempscript <- file.path(tempdir(), "OMA-tempscript.R")
+  oma_tempdata <- file.path(tempdir(), "OMA-tempdata.rds")
+  geneset_getter_run <- paste0('library(OMA)
+  out <- geneset_get(', gene_sets_for_getter, ')
+  saveRDS(out, "', oma_tempdata, '")
+  ')
+  writeLines(geneset_getter_run, oma_tempscript)
+  system(
+    paste0("Rscript --vanilla --max-ppsize=500000 ", oma_tempscript)
+  )
+  gene_sets <- readRDS(oma_tempdata)
 
   ge_info <- ge_object$info
   contrast_info <- ge_info$contrast
 
+  if (ge_info$contrast_type == "binary") { ## this is the case only for binary contrasts
+    active_nicename <- make.names(contrast_info[["active"]])
+    reference_nicename <- make.names(contrast_info[["reference"]])
+    contrast_nicename <- paste0(active_nicename, "-", reference_nicename)
+  }
+
 
   # diff_results <- lapply(1:length(ge_object$data), function (d_num) {
 
-  tech <- ge_object$technology
+  tech <- ge_info$technology
 
   diff_data <- ge_object$data
+
+
+  ## Right up front, `model.matrix` is not able to automatically handle any rows with NA's.
+  nonna_rows <- apply(diff_data$pheno[, c(contrast_info$variable, diff_data$covariates), drop = FALSE], 1, function(x) all(!is.na(x)))
+  diff_data$expr <- diff_data$expr[, nonna_rows]
+  diff_data$pheno <- diff_data$pheno[nonna_rows, ]
 
 
   if (is.null(translate_to_entrezid)) {
@@ -563,20 +612,36 @@ run_dgsva <- function (
   }
 
 
-  diff_data$for_gsva <- tibble(entrezid = x_to_entrezid) %>% bind_cols(diff_data$expr %>% as_tibble) %>% drop_na(entrezid) %>% column_to_rownames("entrezid")
+  # diff_data$for_gsva <- tibble(entrezid = x_to_entrezid) %>% bind_cols(diff_data$expr %>% as_tibble) %>% tidyr::drop_na(entrezid) %>% tibble::column_to_rownames("entrezid")
+  diff_data$for_gsva <- tibble(entrezid = x_to_entrezid) %>% 
+    bind_cols(diff_data$expr %>% as_tibble) %>% 
+    tidyr::drop_na(entrezid) %>% 
+    tibble::column_to_rownames("entrezid") %>% 
+    apply(1, function (x) {
+      if (all(!is.na(x))) {
+        return(x)  # Return the row as is if all values are NA
+      } else if (all(is.na(x))) {
+        return(rep(0, length(x)))  # Return NA if all values are NA
+      }
+      na.replace <- median(x, na.rm = TRUE)  # Calculate median excluding NAs
+      replace(x, is.na(x), na.replace)  # Replace NA with median
+    }) %>% t
 
 
   # diff_data$gsva <- GSVA::gsva(diff_data$for_gsva %>% as.matrix, gene_sets, min.sz = 10, max.sz = 500, method = "gsva", rnaseq = TRUE, mx.diff = TRUE, verbose = FALSE)
   if (tech == "RNA-seq") {
-    diff_data$gsva <- GSVA::gsva(diff_data$for_gsva %>% as.matrix, gene_sets, min.sz = 10, max.sz = 500, method = "gsva", kcdf = "Poisson", mx.diff = TRUE, verbose = FALSE)
+    diff_data$gsva <- GSVA::gsva(diff_data$for_gsva, gene_sets, min.sz = 10, max.sz = 500, method = "gsva", kcdf = "Poisson", mx.diff = TRUE, verbose = FALSE)
   } else {
-    diff_data$gsva <- GSVA::gsva(diff_data$for_gsva %>% as.matrix, gene_sets, min.sz = 10, max.sz = 500, method = "gsva", mx.diff = TRUE, verbose = FALSE)
+    diff_data$gsva <- GSVA::gsva(diff_data$for_gsva, gene_sets, min.sz = 10, max.sz = 500, method = "gsva", mx.diff = TRUE, verbose = FALSE)
   }
 
-
-  diff_f <- paste0('~ 0 + diff_data[["pheno"]][, "', contrast_info$variable, '", drop = TRUE]')
+  diff_f <- ifelse(
+    ge_info$contrast_type == "binary",
+    paste0('~ 0 + diff_data[["pheno"]][, "', contrast_info$variable, '", drop = TRUE]'),
+    paste0('~ diff_data[["pheno"]][, "', contrast_info$variable, '", drop = TRUE]')
+  )
   if (!is.null(diff_data$covariates))
-    diff_f <- paste0(diff_f, " + ", sapply(diff_data$covariates, function (x) paste0('diff_data$pheno[, "', x, '", drop = TRUE]')), collapse = " + ")
+    diff_f <- paste0(diff_f, " + ", paste0(sapply(diff_data$covariates, function (x) paste0('diff_data$pheno[, "', x, '", drop = TRUE]')), collapse = " + "))
   diff_f <- as.formula(diff_f)
 
   # print(diff_data[["pheno"]][, contrast_info$variable])
@@ -584,12 +649,14 @@ run_dgsva <- function (
   # print(diff_data[["pheno"]][, "gender"])
 
   mm <- model.matrix(diff_f)
-  colnames(mm)[1:length(levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE]))] <- levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE])
+  if (ge_info$contrast_type == "binary") ## this is the case only for binary contrasts
+    colnames(mm)[1:length(levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE]))] <- levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE])
   colnames(mm) <- make.names(colnames(mm))
 
   print(colnames(mm))
 
-  con <- limma::makeContrasts(contrasts = contrast_nicename, levels = mm)
+  if (ge_info$contrast_type == "binary") ## this is the case only for binary contrasts
+    con <- limma::makeContrasts(contrasts = contrast_nicename, levels = mm)
 
 
   lmfit_partial <- purrr::safely(limma::lmFit) %>% purrr::partial(diff_data$gsva, design = mm)
@@ -604,38 +671,59 @@ run_dgsva <- function (
     }
   }
 
-  limma_out <- limma::eBayes(
-    limma::contrasts.fit(
+  if (ge_info$contrast_type == "binary") ## this is the case only for binary contrasts
+    limma_realized <- limma::contrasts.fit(
       lmfit_realized,
       con
     )
-  )
+  else if (ge_info$contrast_type == "numeric")
+    limma_realized <- lmfit_realized
+
+  limma_out <- limma::eBayes(limma_realized)
 
   # limma::topTable(limma_out, number = Inf) %>% tibble::rownames_to_column(var = "gene") %>% head
 
+  if (ge_info$contrast_type == "binary")
+    ix_contrast <- 1
+  else if (ge_info$contrast_type == "numeric")
+    ix_contrast <- 2
 
-  active_n <- diff_data$gsva[rownames(limma_out$coefficients), diff_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$active) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
-    lapply(function (x) {
-      x[!is.na(x)] %>% length
-    }) %>% unlist %>% unname
+  diff_data_out <- diff_data <- tibble(
+    pathway = rownames(limma_out$coefficients),
+    coeff = limma_out$coefficients[, ix_contrast] %>% as.vector(),
+    p_value = limma_out$p.value[, ix_contrast] %>% as.vector(),
+    cohen_d = limma_out$coefficients[, ix_contrast] / sqrt(limma_out$s2.post),
+    variance = limma_out$s2.post * limma_out$stdev.unscaled[, ix_contrast]^2 # According to Gordon Smyth in https://support.bioconductor.org/p/70175/
+  )
 
-  reference_n <- diff_data$gsva[rownames(limma_out$coefficients), diff_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$reference) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
-    lapply(function (x) {
-      x[!is.na(x)] %>% length
-    }) %>% unlist %>% unname
+
+  if (ge_info$contrast_type == "binary") { ## this is the case only for binary contrasts
+    diff_data_out$active_n <- diff_data$gsva[rownames(limma_out$coefficients), diff_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$active) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
+      lapply(function (x) {
+        x[!is.na(x)] %>% length
+      }) %>% unlist %>% unname
+
+    diff_data_out$reference_n <- diff_data$gsva[rownames(limma_out$coefficients), diff_data$pheno %>% filter(!!rlang::sym(contrast_info$variable) == contrast_info$reference) %>% pull(sample_name)] %>% t %>% as.data.frame %>%
+      lapply(function (x) {
+        x[!is.na(x)] %>% length
+      }) %>% unlist %>% unname
+  }
+
+
+  ## I'll need to package these items a little differently for the covariates:
+  diff_data_all_vars <- list(
+    pathway = rownames(limma_out$coefficients),
+    coeff = limma_out$coefficients,
+    p_value = limma_out$p.value,
+    cohen_d = limma_out$coefficients / sqrt(limma_out$s2.post), # As recommended by Gordon Smyth: https://support.bioconductor.org/p/71747/
+    variance = limma_out$s2.post * limma_out$stdev.unscaled^2 # --||-- in https://support.bioconductor.org/p/70175/
+  )
 
 
   diff_results <- structure(
     list(
-      diff_data = tibble(
-        pathway = rownames(limma_out$coefficients),
-        coeff = limma_out$coefficients %>% as.vector,
-        p_value = limma_out$p.value %>% as.vector,
-        cohen_d = limma_out$coefficients[, 1] / sqrt(limma_out$s2.post),
-        variance = limma_out$s2.post * limma_out$stdev.unscaled[, 1]^2, # According to Gordon Smyth in https://support.bioconductor.org/p/70175/
-        active_n = active_n,
-        reference_n = reference_n
-      ),
+      diff_data = diff_data_out,
+      diff_data_all_vars = diff_data_all_vars,
       dataset_name = ge_object$dataset_name,
       technology = tech
     ), class = "diff_results"
