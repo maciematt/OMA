@@ -547,7 +547,8 @@ run_dge <- function (ge_object) {
       diff_data = diff_data_out,
       diff_data_all_vars = diff_data_all_vars,
       dataset_name = ge_object$dataset_name,
-      technology = tech
+      technology = tech,
+      design_matrix = mm
     ), class = "diff_results"
   )
 
@@ -743,7 +744,8 @@ run_dgsva <- function (
       diff_data = diff_data_out,
       diff_data_all_vars = diff_data_all_vars,
       dataset_name = ge_object$dataset_name,
-      technology = tech
+      technology = tech,
+      design_matrix = mm
     ), class = "diff_results"
   )
 
