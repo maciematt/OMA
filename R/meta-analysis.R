@@ -665,6 +665,12 @@ run_dgsva <- function (
     colnames(mm)[1:length(levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE]))] <- levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE])
   colnames(mm) <- make.names(colnames(mm))
 
+  if (ge_info$use_sva) {
+    n_sv <- sva::num.sv(diff_data$gsva, mod, method = ge_info$sva_method)
+    sva_obj <- sva::sva(diff_data$gsva, mod, n.sv = n_sv$sv)
+    mm <- cbind(mm, sva_obj$sv)
+  }
+
   print(colnames(mm))
 
   if (ge_info$contrast_type == "binary") ## this is the case only for binary contrasts
