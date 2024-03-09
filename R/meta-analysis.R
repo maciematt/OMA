@@ -21,6 +21,8 @@ prepare_for_dge <- function (
   blocks = NULL,
   scrutinize_blocks = FALSE,
   sample_filters = NULL,
+  use_sva = FALSE,
+  sva_method = c("leek"),
   min_genes_to_keep_dataset = 5,
   min_samples_per_level = 2,
   min_samples = 5,
@@ -52,6 +54,8 @@ prepare_for_dge <- function (
 
   technology <- match.arg(technology)
   contrast_type <- match.arg(contrast_type)
+  sva_method <- match.args(sva_method)
+
 
   if (!is.null(sample_filters) & !rlang::is_quosure(sample_filters)) { stop("`sample_filters` needs to be a quosure - create it using the `create_filter` function!") }
 
@@ -136,6 +140,8 @@ prepare_for_dge <- function (
     dataset_name = dataset_name,
     filter = filter,
     annotation_db = annotation_db,
+    use_sva = use_sva,
+    sva_method = sva_method,
     translate_to_entrez = translate_to_entrez
   )
 
@@ -458,6 +464,12 @@ run_dge <- function (ge_object) {
     colnames(mm)[2] <- contrast_info$variable ## index=2 because of the interecept in the first position
 
   colnames(mm) <- make.names(colnames(mm))
+
+  if (ge_info$use_sva) {
+    n_sv <- sva::num.sv(ge_data$expr_ready, mod, method = ge_info$sva_method)
+    sva_obj <- sva::sva(ge_data$expr_ready, mod, n.sv = n_sv$sv)
+    mm <- cbind(mm, sva_obj$sv)
+  }
 
   print(colnames(mm))
 
