@@ -54,7 +54,7 @@ prepare_for_dge <- function (
 
   technology <- match.arg(technology)
   contrast_type <- match.arg(contrast_type)
-  sva_method <- match.args(sva_method)
+  sva_method <- match.arg(sva_method)
 
 
   if (!is.null(sample_filters) & !rlang::is_quosure(sample_filters)) { stop("`sample_filters` needs to be a quosure - create it using the `create_filter` function!") }
@@ -465,10 +465,12 @@ run_dge <- function (ge_object) {
 
   colnames(mm) <- make.names(colnames(mm))
 
-  if (ge_info$use_sva) {
-    n_sv <- sva::num.sv(ge_data$expr_ready, mod, method = ge_info$sva_method)
-    sva_obj <- sva::sva(ge_data$expr_ready, mod, n.sv = n_sv$sv)
-    mm <- cbind(mm, sva_obj$sv)
+  if (isTRUE(ge_info$use_sva)) {
+    n_sv <- sva::num.sv(ge_data$expr_ready, mm, method = ge_info$sva_method)
+    sva_obj <- sva::sva(ge_data$expr_ready, mm, n.sv = n_sv)
+    sva_sv <- sva_obj$sv
+    colnames(sva_sv) <- paste0("sv", seq(1, n_sv))
+    mm <- cbind(mm, sva_sv)
   }
 
   print(colnames(mm))
@@ -666,10 +668,12 @@ run_dgsva <- function (
     colnames(mm)[1:length(levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE]))] <- levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE])
   colnames(mm) <- make.names(colnames(mm))
 
-  if (ge_info$use_sva) {
-    n_sv <- sva::num.sv(diff_data$gsva, mod, method = ge_info$sva_method)
-    sva_obj <- sva::sva(diff_data$gsva, mod, n.sv = n_sv$sv)
-    mm <- cbind(mm, sva_obj$sv)
+  if (isTRUE(ge_info$use_sva)) {
+    n_sv <- sva::num.sv(diff_data$gsva, mm, method = ge_info$sva_method)
+    sva_obj <- sva::sva(diff_data$gsva, mm, n.sv = n_sv)
+    sva_sv <- sva_obj$sv
+    colnames(sva_sv) <- paste0("sv", seq(1, n_sv))
+    mm <- cbind(mm, sva_sv)
   }
 
   print(colnames(mm))
