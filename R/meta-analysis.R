@@ -26,7 +26,7 @@ prepare_for_dge <- function (
   min_genes_to_keep_dataset = 5,
   min_samples_per_level = 2,
   min_samples = 5,
-  fix_NA = c("none", "mean"),
+  fix_NA = c("none", "mean", "median"),
   filter_genes = TRUE,
   annotation_db = hgu133plus2.db::hgu133plus2.db,
   translate_to_entrez = TRUE
@@ -466,8 +466,13 @@ run_dge <- function (ge_object) {
   colnames(mm) <- make.names(colnames(mm))
 
   if (isTRUE(ge_info$use_sva)) {
-    n_sv <- sva::num.sv(ge_data$expr_ready, mm, method = ge_info$sva_method)
-    sva_obj <- sva::sva(ge_data$expr_ready, mm, n.sv = n_sv)
+    nonna_expr <- fix_missing_tx(ge_data$expr_ready, rownames(ge_data$expr_ready), colnames(ge_data$expr_ready))
+    # n_sv <- sva::num.sv(ge_data$expr_ready, mm, method = ge_info$sva_method)
+    n_sv <- sva::num.sv(nonna_expr, mm, method = ge_info$sva_method)
+    if (n_sv == 0)
+      stop("Can't run with automated SVA - number of surrogate variables picked by SVA is 0!")
+    # sva_obj <- sva::sva(ge_data$expr_ready, mm, n.sv = n_sv)
+    sva_obj <- sva::sva(nonna_expr, mm, n.sv = n_sv)
     sva_sv <- sva_obj$sv
     colnames(sva_sv) <- paste0("sv", seq(1, n_sv))
     mm <- cbind(mm, sva_sv)
@@ -563,8 +568,8 @@ run_dge <- function (ge_object) {
 
 run_dgsva <- function (
   ge_object,
-  gene_sets = NULL,
-  translate_to_entrezid = NULL
+  gene_sets = NULL#,
+  # translate_to_entrezid = NULL
 ) {
 
   #' `run_dgsva`, as in "run differential GSVA".
@@ -620,27 +625,28 @@ run_dgsva <- function (
   diff_data$pheno <- diff_data$pheno[nonna_rows, ]
 
 
-  if (is.null(translate_to_entrezid)) {
-    x_to_entrezid <- rownames(diff_data$expr)
-  } else {
-    x_to_entrezid <- AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db, keys = rownames(diff_data$expr), column = "ENTREZID", keytype = "SYMBOL", multiVals = "first")
-  }
+  # if (is.null(translate_to_entrezid)) {
+  #   x_to_entrezid <- rownames(diff_data$expr)
+  # } else {
+  #   x_to_entrezid <- AnnotationDbi::mapIds(org.Hs.eg.db::org.Hs.eg.db, keys = rownames(diff_data$expr), column = "ENTREZID", keytype = "SYMBOL", multiVals = "first")
+  # }
 
 
   # diff_data$for_gsva <- tibble(entrezid = x_to_entrezid) %>% bind_cols(diff_data$expr %>% as_tibble) %>% tidyr::drop_na(entrezid) %>% tibble::column_to_rownames("entrezid")
-  diff_data$for_gsva <- tibble(entrezid = x_to_entrezid) %>% 
-    bind_cols(diff_data$expr %>% as_tibble) %>% 
-    tidyr::drop_na(entrezid) %>% 
-    tibble::column_to_rownames("entrezid") %>% 
-    apply(1, function (x) {
-      if (all(!is.na(x))) {
-        return(x)  # Return the row as is if all values are NA
-      } else if (all(is.na(x))) {
-        return(rep(0, length(x)))  # Return NA if all values are NA
-      }
-      na.replace <- median(x, na.rm = TRUE)  # Calculate median excluding NAs
-      replace(x, is.na(x), na.replace)  # Replace NA with median
-    }) %>% t
+  diff_data$for_gsva <- fix_missing_tx(diff_data$expr, rownames(diff_data$expr), colnames(diff_data$expr))
+  # diff_data$for_gsva <- tibble(entrezid = x_to_entrezid) %>% 
+  #   bind_cols(diff_data$expr %>% as_tibble) %>% 
+  #   tidyr::drop_na(entrezid) %>% 
+  #   tibble::column_to_rownames("entrezid") %>% 
+  #   apply(1, function (x) {
+  #     if (all(!is.na(x))) {
+  #       return(x)  # Return the row as is if all values are NA
+  #     } else if (all(is.na(x))) {
+  #       return(rep(0, length(x)))  # Return NA if all values are NA
+  #     }
+  #     na.replace <- median(x, na.rm = TRUE)  # Calculate median excluding NAs
+  #     replace(x, is.na(x), na.replace)  # Replace NA with median
+  #   }) %>% t
 
 
   # diff_data$gsva <- GSVA::gsva(diff_data$for_gsva %>% as.matrix, gene_sets, min.sz = 10, max.sz = 500, method = "gsva", rnaseq = TRUE, mx.diff = TRUE, verbose = FALSE)
@@ -670,6 +676,8 @@ run_dgsva <- function (
 
   if (isTRUE(ge_info$use_sva)) {
     n_sv <- sva::num.sv(diff_data$gsva, mm, method = ge_info$sva_method)
+    if (n_sv == 0)
+      stop("Can't run with automated SVA - number of surrogate variables picked by SVA is 0!")
     sva_obj <- sva::sva(diff_data$gsva, mm, n.sv = n_sv)
     sva_sv <- sva_obj$sv
     colnames(sva_sv) <- paste0("sv", seq(1, n_sv))

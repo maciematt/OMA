@@ -5,7 +5,7 @@
 \title{`run_dgsva`, as in "run differential GSVA".
 Here using gsva and limma.}
 \usage{
-run_dgsva(ge_object, gene_sets = NULL, translate_to_entrezid = NULL)
+run_dgsva(ge_object, gene_sets = NULL)
 }
 \description{
 *Could be passing in a concrete contrast argument instead with a more

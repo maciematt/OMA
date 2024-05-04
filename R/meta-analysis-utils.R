@@ -4,6 +4,7 @@
 #' @export nsfilter_oma
 #' @export build_filter
 #' @export geneset_get
+#' @export fix_missing_tx
 #' @export
 
 
@@ -73,4 +74,38 @@ geneset_get <- function (gene_sets) {
   }
 
   return (gene_sets)
+}
+
+
+fix_missing_tx <- function (expr, gene_names, sample_names, na_replace = purrr::partial(median, na.rm = TRUE)) {
+
+  #' @param expr - A dataframe of expression where columns track samples and rows track genes.
+  #' @param gene_names - A vector of gene ID's (entrez or whatever's used).
+  #' @param sample_names - Vector of sample names.
+  #' @param na_replace - Function to use to replace NA's - needs to be ready to
+  #'   slot in a data vector; could be a partial with all args bound except the 
+  #'   data vector.
+  #' 
+  #' Convert between probe formats.
+
+  cleanedup <- tibble(gene_name = gene_names) %>%
+    bind_cols(expr %>% tibble::as_tibble()) %>% 
+    tidyr::drop_na(gene_name)
+
+  cleanedup_gnames <- cleanedup$gene_name
+
+  final <- cleanedup %>% select(-gene_name) %>% 
+    apply(1, function (x) {
+      if (all(!is.na(x))) {
+        return(x)  # Return the row as is if all values are NA
+      } else if (all(is.na(x))) {
+        return(rep(0, length(x)))  # Return NA if all values are NA
+      }
+      replace(x, is.na(x), na_replace(x))  # Replace NA with median
+    }) %>% t
+  
+  rownames(final) <- cleanedup_gnames
+  colnames(final) <- sample_names
+
+  return(final)
 }

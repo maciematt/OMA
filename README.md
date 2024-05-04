@@ -16,7 +16,7 @@ or from a local copy via
 
 ## Usage
 
-Applicatin of OMA occurs in three (or four) stages: (0. building filters, ) 1. data preparation and checking, 2. differential gene expression analysis in each dataset, and 3. meta-analysis of the DGE results from 2.
+Application of OMA occurs in three (or four) stages: (0. building filters, ) 1. data preparation and checking, 2. differential gene expression analysis in each dataset, and 3. meta-analysis of the DGE results from 2.
 
 0. Create a filter for the data
 
