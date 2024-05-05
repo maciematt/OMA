@@ -819,7 +819,7 @@ run_ma <- function (
   if ((n_cores %% 1) != 0) { stop("`n_cores` must be an integer number!") }
 
   if (parallel) {
-    if ({Sys.getenv("RSTUDIO") == "1") || (.Platform$OS.type == "windows")) {
+    if ((Sys.getenv("RSTUDIO") == "1") || (.Platform$OS.type == "windows")) {
       future::plan(future::multisession, workers = n_cores)
     } else {
       future::plan(future::multicore, workers = n_cores)
