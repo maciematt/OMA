@@ -819,7 +819,11 @@ run_ma <- function (
   if ((n_cores %% 1) != 0) { stop("`n_cores` must be an integer number!") }
 
   if (parallel) {
-    future::plan(future::multiprocess, workers = n_cores)
+    if (.Platform$OS.type == "windows") {
+      future::plan(future::multisession, workers = n_cores)
+    } else {
+      future::plan(future::multicore, workers = n_cores)
+    }
     map <- furrr::future_map
   } else {
     map <- lapply
