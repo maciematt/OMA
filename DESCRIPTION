@@ -12,18 +12,18 @@ RoxygenNote: 7.3.1
 Depends:
     dplyr
 Imports:
-    purrr
-    furrr
-    tidyr
-    tibble
-    metafor
-    future
-    GSEABase
+    purrr,
+    furrr,
+    tidyr,
+    tibble,
+    metafor,
+    future,
+    GSEABase,
     msigdbr
 Suggests:
-    testthat
-    hgu133plus2.db
-    org.Hs.eg.db
-    AnnotationDbi
-    Biobase
+    testthat,
+    hgu133plus2.db,
+    org.Hs.eg.db,
+    AnnotationDbi,
+    Biobase,
     genefilter
