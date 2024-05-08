@@ -588,7 +588,6 @@ run_dgsva <- function (
   if (!is(ge_object, "dge_ready_data")) { stop("`ge_object` needs to be of `dge_ready_data` class!") }
   # lapply(ge_object, check_ge_obj)
 
-
   gene_sets_for_getter <- ifelse(is.null(gene_sets), "NULL", paste0('c("', paste0(gene_sets, collapse = '", "'), '")'))
   oma_tempscript <- file.path(tempdir(), "OMA-tempscript.R")
   oma_tempdata <- file.path(tempdir(), "OMA-tempdata.rds")
@@ -610,7 +609,6 @@ run_dgsva <- function (
     reference_nicename <- make.names(contrast_info[["reference"]])
     contrast_nicename <- paste0(active_nicename, "-", reference_nicename)
   }
-
 
   # diff_results <- lapply(1:length(ge_object$data), function (d_num) {
 
@@ -648,7 +646,6 @@ run_dgsva <- function (
   #     replace(x, is.na(x), na.replace)  # Replace NA with median
   #   }) %>% t
 
-
   # diff_data$gsva <- GSVA::gsva(diff_data$for_gsva %>% as.matrix, gene_sets, min.sz = 10, max.sz = 500, method = "gsva", rnaseq = TRUE, mx.diff = TRUE, verbose = FALSE)
   if (tech == "RNA-seq") {
     diff_data$gsva <- GSVA::gsva(diff_data$for_gsva, gene_sets, min.sz = 10, max.sz = 500, method = "gsva", kcdf = "Poisson", mx.diff = TRUE, verbose = FALSE)
@@ -674,6 +671,7 @@ run_dgsva <- function (
     colnames(mm)[1:length(levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE]))] <- levels(diff_data[["pheno"]][, contrast_info$variable, drop = TRUE])
   colnames(mm) <- make.names(colnames(mm))
 
+
   if (isTRUE(ge_info$use_sva)) {
     n_sv <- sva::num.sv(diff_data$gsva, mm, method = ge_info$sva_method)
     if (n_sv == 0)
@@ -684,6 +682,7 @@ run_dgsva <- function (
     mm <- cbind(mm, sva_sv)
   }
 
+  print("colnames(mm):")
   print(colnames(mm))
 
   if (ge_info$contrast_type == "binary") ## this is the case only for binary contrasts
@@ -692,6 +691,7 @@ run_dgsva <- function (
 
   lmfit_partial <- purrr::safely(limma::lmFit) %>% purrr::partial(diff_data$gsva, design = mm)
   lmfit_realized <- lmfit_partial()$result
+
 
   if (!is.null(diff_data$block)) {
     corfit <- limma::duplicateCorrelation(diff_data$gsva, mm, block = diff_data$pheno[, diff_data$block, drop = TRUE])
@@ -710,7 +710,9 @@ run_dgsva <- function (
   else if (ge_info$contrast_type == "numeric")
     limma_realized <- lmfit_realized
 
+
   limma_out <- limma::eBayes(limma_realized)
+
 
   # limma::topTable(limma_out, number = Inf) %>% tibble::rownames_to_column(var = "gene") %>% head
 
@@ -719,7 +721,7 @@ run_dgsva <- function (
   else if (ge_info$contrast_type == "numeric")
     ix_contrast <- 2
 
-  diff_data_out <- diff_data <- tibble(
+  diff_data_out <- tibble(
     pathway = rownames(limma_out$coefficients),
     coeff = limma_out$coefficients[, ix_contrast] %>% as.vector(),
     p_value = limma_out$p.value[, ix_contrast] %>% as.vector(),
