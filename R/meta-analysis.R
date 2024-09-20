@@ -876,7 +876,7 @@ run_ma <- function (
   idwise_sevar <- c(tibble(idvar = ids_across) %>% list, dat_results %>% map(function (x) x %>% rename(idvar = !!id_var) %>% select(idvar, !!rlang::sym(sevar)))) %>% purrr::reduce(left_join, by = "idvar")
   colnames(idwise_sevar) <- c("idvar", names(dat_results))
   # idwise_var_n <- idwise_var %>% tidyr::gather("key", "var", -gene) %>% select(-key) %>% tidyr::drop_na() %>% group_by(gene) %>% summarize(n = n()) %>% ungroup
- if (!all((idwise_es %>% pull(idvar)) == (idwise_sevar %>% pull(idvar))))
+  if (!all((idwise_es %>% pull(idvar)) == (idwise_sevar %>% pull(idvar))))
     stop("All id's and all numbers of datasets have to be equal in the ES and variance outputs!")
 
 
@@ -912,7 +912,7 @@ run_ma <- function (
     ma_results <- map(ma_ready, function (ma_set) {
       list(
         ma_fixed = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), method = "FE"),
-        ma_random = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), method = "DL")
+        ma_random = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)))#, method = "DL") # eschewing DL, REML seems to be the better method
       )
     })
   } else {
