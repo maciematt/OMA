@@ -981,6 +981,7 @@ run_ma <- function (
   return(
     list(
       ma = ma_object %>% rename(!!id_var := idvar),
+      full_ma = ma_results,
       info = ma_info,
       adj_pval = filtered_adj_p,
       adj_pval_cutoffs = inclusion_cutoff:max(ma_object$n_datasets)
