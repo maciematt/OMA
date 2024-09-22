@@ -1,5 +1,4 @@
 
-
 #' @import dplyr
 #' @export prepare_for_dge
 #' @export run_dge
@@ -778,7 +777,7 @@ run_ma <- function (
   se_var = NULL,
   p_adj_method = c("BH",
   p.adjust.methods),
-  Q_p_cutoff = 0.05,
+  H0_p_cutoff = 0.05,
   inclusion_cutoff = 1,
   parallel = FALSE,
   n_cores = future::availableCores() - 1
@@ -845,7 +844,7 @@ run_ma <- function (
     variance_variable = variance_var,
     se_variable = se_var,
     p_adj_method = p_adj_method,
-    Q_p_cutoff = Q_p_cutoff,
+    H0_p_cutoff = H0_p_cutoff,
     inclusion_cutoff = inclusion_cutoff
   )
 
@@ -886,7 +885,7 @@ run_ma <- function (
 
   print("length(ma_ready):")
   print(length(ma_ready))
-  if (multilevel) {
+  if (isTRUE(multilevel)) {
     ma_ready <- ma_ready %>% lapply(function (ma_set) {
       if ((ma_set$dat_level %>% unique %>% length) < 2)
         return(NULL)
@@ -908,7 +907,7 @@ run_ma <- function (
   # ma_ready <- ma_ready[1:2] # TESTING
   ma_start_time <- Sys.time()
 
-  if (!multilevel) {
+  if (isFALSE(multilevel)) {
     ma_results <- map(ma_ready, function (ma_set) {
       list(
         ma_fixed = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), method = "FE"),
@@ -932,13 +931,29 @@ run_ma <- function (
   cat("\nPure meta-analysis took:\n")
   print(ma_time_taken)
 
+  if (isTRUE(multilevel)) {
+    LRT_H0 <- ma_results %>% lapply(function (x) {
+      if (is.null(x$ma_fixed$error) & is.null(x$ma_random$error)) {
+        loglik_ratio <- metafor::anova.rma(x$ma_fixed$result, x$ma_random$result)
+        return(data_frame(LRT = loglik_ratio$LRT, H0_pval = loglik_ratio$pval))
+      } else {
+        return(data_frame(LRT = NA, H0_pval = NA))
+      }
+    }) %>% bind_rows
+  }
 
   ma_object <- tibble(idvar = names(ma_ready)) %>% bind_cols(
     tibble(
       n_datasets = sapply(ma_ready, nrow),
       datasets = sapply(ma_ready, function (x) x$dataset %>% list)
     )
-  ) %>% bind_cols(
+  )
+
+  if (isTRUE(multilevel)) {
+    ma_object <- ma_object %>% bind_cols(LRT_H0)
+  }
+
+  ma_object <- ma_object %>% bind_cols(
     ma_results %>% lapply(function (x) {
 
       if (is.null(x$ma_fixed$error)) {
@@ -956,21 +971,23 @@ run_ma <- function (
       bind_cols(fixed_bit, random_bit)
 
     }) %>% bind_rows
-  ) %>% filter(!(is.na(fixed_es) & is.na(random_es)), n_datasets >= inclusion_cutoff) %>% mutate(
+  )
+
+  ma_object <- ma_object %>% filter(!(is.na(fixed_es) & is.na(random_es)), n_datasets >= inclusion_cutoff) %>% mutate(
     fixed_adj_pval = p.adjust(fixed_pval, method = p_adj_method),
     random_adj_pval = p.adjust(random_pval, method = p_adj_method),
-    hybrid_adj_pval = ifelse(!is.na(QEp) & (QEp < Q_p_cutoff), random_pval, fixed_pval) %>% p.adjust(method = p_adj_method),
-    hybrid_es = ifelse(!is.na(QEp) & (QEp < Q_p_cutoff), random_es, fixed_es),
-    hybrid_se = ifelse(!is.na(QEp) & (QEp < Q_p_cutoff), random_se, fixed_se)
+    hybrid_adj_pval = ifelse((isTRUE(multilevel) & !is.na(H0_pval) & (H0_pval < H0_p_cutoff)) | (isFALSE(multilevel) & !is.na(QEp) & (QEp < H0_p_cutoff)), random_pval, fixed_pval) %>% p.adjust(method = p_adj_method),
+    hybrid_es = ifelse((isTRUE(multilevel) & !is.na(H0_pval) & (H0_pval < H0_p_cutoff)) | (isFALSE(multilevel) & !is.na(QEp) & (QEp < H0_p_cutoff)), random_es, fixed_es),
+    hybrid_se = ifelse((isTRUE(multilevel) & !is.na(H0_pval) & (H0_pval < H0_p_cutoff)) | (isFALSE(multilevel) & !is.na(QEp) & (QEp < H0_p_cutoff)), random_se, fixed_se)
   ) ## ma_object
 
   filtered_adj_p <- inclusion_cutoff:max(ma_object$n_datasets) %>% lapply(function (cutoff) {
-    ma_object %>% filter(n_datasets >= cutoff) %>% select(idvar, fixed_pval, random_pval, QEp) %>%
+    ma_object %>% filter(n_datasets >= cutoff) %>% select(idvar, fixed_pval, random_pval, QEp, H0_pval) %>%
       transmute(
         idvar,
         fixed_adj_pval = p.adjust(fixed_pval, method = p_adj_method),
         random_adj_pval = p.adjust(random_pval, method = p_adj_method),
-        hybrid_adj_pval = ifelse(!is.na(QEp) & (QEp <= Q_p_cutoff), random_pval, fixed_pval) %>% p.adjust(method = p_adj_method)
+        hybrid_adj_pval = ifelse((isTRUE(multilevel) & !is.na(H0_pval) & (H0_pval < H0_p_cutoff)) | (isFALSE(multilevel) & !is.na(QEp) & (QEp <= H0_p_cutoff)), random_pval, fixed_pval) %>% p.adjust(method = p_adj_method)
       )
   })
   filtered_adj_p <- list("fixed_adj_pval", "random_adj_pval", "hybrid_adj_pval") %>% lapply(function (pval) {
@@ -981,7 +998,7 @@ run_ma <- function (
   return(
     list(
       ma = ma_object %>% rename(!!id_var := idvar),
-      full_ma = ma_results,
+      # full_ma = ma_results,
       info = ma_info,
       adj_pval = filtered_adj_p,
       adj_pval_cutoffs = inclusion_cutoff:max(ma_object$n_datasets)
