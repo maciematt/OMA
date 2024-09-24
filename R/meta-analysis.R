@@ -954,46 +954,78 @@ run_ma <- function (
   }
 
   ma_object <- ma_object %>% bind_cols(
+
     ma_results %>% lapply(function (x) {
 
-      if (is.null(x$ma_fixed$error)) {
-        fixed_bit <- tibble(fixed_es = x$ma_fixed$result$beta[1], fixed_se = x$ma_fixed$result$se, fixed_ci_lb = x$ma_fixed$result$ci.lb, fixed_ci_ub = x$ma_fixed$result$ci.ub, fixed_pval = x$ma_fixed$result$pval)
+      if (isTRUE(multilevel)) {
+        if (is.null(x$ma_fixed$error)) {
+          fixed_bit <- tibble(beta = x$ma_fixed$result$beta[1], beta_se = x$ma_fixed$result$se, beta_ci_lb = x$ma_fixed$result$ci.lb, beta_ci_ub = x$ma_fixed$result$ci.ub, beta_pval = x$ma_fixed$result$pval, omega2 = x$ma_fixed$result$sigma2, QE = x$ma_fixed$result$QE, QEp = x$ma_fixed$result$QEp)
+        } else {
+          fixed_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, omega2 = NA, QE = NA, QEp = NA)
+        }
+        if (is.null(x$ma_random$error)) {
+          random_bit <- tibble(beta = x$result$beta[1], beta_se = x$result$se, beta_ci_lb = x$ma_random$result$ci.lb, beta_ci_ub = x$ma_random$result$ci.ub, beta_pval = x$result$pval, tau2 = x$result$sigma2[2], omega2 = x$result$sigma2[1], QE = x$result$QE, QEp = x$result$QEp)
+        } else {
+          random_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, tau2 = NA, omega2 = NA, QE = NA, QEp = NA)
+        }
       } else {
-        fixed_bit <- tibble(fixed_es = NA, fixed_se = NA, fixed_ci_lb = NA, fixed_ci_ub = NA, fixed_pval = NA)
+        if (is.null(x$ma_fixed$error)) {
+          fixed_bit <- tibble(beta = x$ma_fixed$result$beta[1], beta_se = x$ma_fixed$result$se, beta_ci_lb = x$ma_fixed$result$ci.lb, beta_ci_ub = x$ma_fixed$result$ci.ub, beta_pval = x$ma_fixed$result$pval)
+        } else {
+          fixed_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA)
+        }
+        if (is.null(x$ma_random$error)) {
+          random_bit <- tibble(beta = x$ma_random$result$beta[1], beta_se = x$ma_random$result$se, beta_ci_lb = x$ma_random$result$ci.lb, beta_ci_ub = x$ma_random$result$ci.ub, beta_pval = x$ma_random$result$pval, tau2 = x$ma_random$result$tau2, QE = x$result$QE, QEp = x$ma_random$result$QEp)
+        } else {
+          random_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, tau2 = NA, QE = NA, QEp = NA)
+        }
       }
 
-      if (is.null(x$ma_random$error)) {
-        random_bit <- tibble(random_es = x$ma_random$result$beta[1], random_se = x$ma_random$result$se, random_ci_lb = x$ma_random$result$ci.lb, random_ci_ub = x$ma_random$result$ci.ub, random_pval = x$ma_random$result$pval, tau2 = x$ma_random$result$tau2, QEp = x$ma_random$result$QEp)
-      } else {
-        random_bit <- tibble(random_es = NA, random_se = NA, random_ci_lb = NA, random_ci_ub = NA, random_pval = NA, tau2 = NA, QEp = NA)
-      }
+      fixed_bit <- fixed_bit %>% rename_with(~ paste0(., "_H0"))
+      random_bit <- random_bit %>% rename_with(~ paste0(., "_H1"))
 
       bind_cols(fixed_bit, random_bit)
 
     }) %>% bind_rows
   )
 
-  ma_object <- ma_object %>% filter(!(is.na(fixed_es) & is.na(random_es)), n_datasets >= inclusion_cutoff) %>% mutate(
-    fixed_adj_pval = p.adjust(fixed_pval, method = p_adj_method),
-    random_adj_pval = p.adjust(random_pval, method = p_adj_method),
-    hybrid_adj_pval = ifelse((isTRUE(multilevel) & !is.na(H0_pval) & (H0_pval < H0_p_cutoff)) | (isFALSE(multilevel) & !is.na(QEp) & (QEp < H0_p_cutoff)), random_pval, fixed_pval) %>% p.adjust(method = p_adj_method),
-    hybrid_es = ifelse((isTRUE(multilevel) & !is.na(H0_pval) & (H0_pval < H0_p_cutoff)) | (isFALSE(multilevel) & !is.na(QEp) & (QEp < H0_p_cutoff)), random_es, fixed_es),
-    hybrid_se = ifelse((isTRUE(multilevel) & !is.na(H0_pval) & (H0_pval < H0_p_cutoff)) | (isFALSE(multilevel) & !is.na(QEp) & (QEp < H0_p_cutoff)), random_se, fixed_se)
+  if (isTRUE(multilevel)) {
+    hybrid_selector <- !is.na(ma_object$H0_pval) & (ma_object$H0_pval < H0_p_cutoff)
+  } else {
+    hybrid_selector <- !is.na(ma_object$QEp_H1) & (ma_object$QEp_H1 < H0_p_cutoff)
+  }
+
+  # print(head(ma_object))
+  # print(isTRUE(multilevel))
+  # print(hybrid_selector)
+
+  ma_object <- ma_object %>% filter(!(is.na(beta_H0) & is.na(beta_H1)), n_datasets >= inclusion_cutoff) %>% mutate(
+    beta_adj_pval_H0 = p.adjust(beta_pval_H0, method = p_adj_method),
+    beta_adj_pval_H1 = p.adjust(beta_pval_H1, method = p_adj_method),
+    hybrid_adj_pval = ifelse(hybrid_selector, beta_pval_H1, beta_pval_H0) %>% p.adjust(method = p_adj_method),
+    hybrid_beta = ifelse(hybrid_selector, beta_H1, beta_H0),
+    hybrid_beta_se = ifelse(hybrid_selector, beta_se_H1, beta_se_H0)
   ) ## ma_object
 
   filtered_adj_p <- inclusion_cutoff:max(ma_object$n_datasets) %>% lapply(function (cutoff) {
-    ma_object %>% filter(n_datasets >= cutoff) %>% select(idvar, fixed_pval, random_pval, QEp, H0_pval) %>%
-      transmute(
-        idvar,
-        fixed_adj_pval = p.adjust(fixed_pval, method = p_adj_method),
-        random_adj_pval = p.adjust(random_pval, method = p_adj_method),
-        hybrid_adj_pval = ifelse((isTRUE(multilevel) & !is.na(H0_pval) & (H0_pval < H0_p_cutoff)) | (isFALSE(multilevel) & !is.na(QEp) & (QEp <= H0_p_cutoff)), random_pval, fixed_pval) %>% p.adjust(method = p_adj_method)
-      )
+    row_filter <- ma_object$n_datasets >= cutoff
+    out <- ma_object %>% filter(n_datasets >= cutoff)
+    if (isTRUE(multilevel)) {
+      out <- out %>% select(idvar, beta_pval_H0, beta_pval_H1, QEp_H1, H0_pval)
+    } else {
+      out <- out %>% select(idvar, beta_pval_H0, beta_pval_H1, QEp_H1)
+    }
+    out %>% transmute(
+      idvar,
+      beta_adj_pval_H0 = p.adjust(beta_pval_H0, method = p_adj_method),
+      beta_adj_pval_H1 = p.adjust(beta_pval_H1, method = p_adj_method),
+      hybrid_adj_pval = ifelse(hybrid_selector[row_filter], beta_pval_H1, beta_pval_H0) %>% p.adjust(method = p_adj_method)
+    )
   })
-  filtered_adj_p <- list("fixed_adj_pval", "random_adj_pval", "hybrid_adj_pval") %>% lapply(function (pval) {
+  filtered_adj_p <- list("beta_adj_pval_H0", "beta_adj_pval_H1", "hybrid_adj_pval") %>% lapply(function (pval) {
     filtered_adj_p %>% purrr::reduce(function (x, y) {left_join(x, y %>% select(!!id_var := idvar, !!rlang::sym(pval)), by = id_var)}, .init = ma_object %>% select(!!id_var := idvar))
   })
-  names(filtered_adj_p) <- c("fixed_adj_pval", "random_adj_pval", "hybrid_adj_pval")
+  names(filtered_adj_p) <- c("beta_adj_pval_H0", "beta_adj_pval_H1", "hybrid_adj_pval")
 
   return(
     list(
