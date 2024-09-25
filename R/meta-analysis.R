@@ -990,9 +990,9 @@ run_ma <- function (
   )
 
   if (isTRUE(multilevel)) {
-    hybrid_selector <- !is.na(ma_object$H0_pval) & (ma_object$H0_pval < H0_p_cutoff)
+    ma_object$hybrid_selector <- !is.na(ma_object$H0_pval) & (ma_object$H0_pval < H0_p_cutoff)
   } else {
-    hybrid_selector <- !is.na(ma_object$QEp_H1) & (ma_object$QEp_H1 < H0_p_cutoff)
+    ma_object$hybrid_selector <- !is.na(ma_object$QEp_H1) & (ma_object$QEp_H1 < H0_p_cutoff)
   }
 
   # print(head(ma_object))
@@ -1008,18 +1008,17 @@ run_ma <- function (
   ) ## ma_object
 
   filtered_adj_p <- inclusion_cutoff:max(ma_object$n_datasets) %>% lapply(function (cutoff) {
-    row_filter <- ma_object$n_datasets >= cutoff
     out <- ma_object %>% filter(n_datasets >= cutoff)
     if (isTRUE(multilevel)) {
-      out <- out %>% select(idvar, beta_pval_H0, beta_pval_H1, QEp_H1, H0_pval)
+      out <- out %>% select(idvar, beta_pval_H0, beta_pval_H1, QEp_H1, H0_pval, hybrid_selector)
     } else {
-      out <- out %>% select(idvar, beta_pval_H0, beta_pval_H1, QEp_H1)
+      out <- out %>% select(idvar, beta_pval_H0, beta_pval_H1, QEp_H1, hybrid_selector)
     }
     out %>% transmute(
       idvar,
       beta_adj_pval_H0 = p.adjust(beta_pval_H0, method = p_adj_method),
       beta_adj_pval_H1 = p.adjust(beta_pval_H1, method = p_adj_method),
-      hybrid_adj_pval = ifelse(hybrid_selector[row_filter], beta_pval_H1, beta_pval_H0) %>% p.adjust(method = p_adj_method)
+      hybrid_adj_pval = ifelse(hybrid_selector, beta_pval_H1, beta_pval_H0) %>% p.adjust(method = p_adj_method)
     )
   })
   filtered_adj_p <- list("beta_adj_pval_H0", "beta_adj_pval_H1", "hybrid_adj_pval") %>% lapply(function (pval) {
@@ -1029,7 +1028,7 @@ run_ma <- function (
 
   return(
     list(
-      ma = ma_object %>% rename(!!id_var := idvar),
+      ma = ma_object %>% rename(!!id_var := idvar) %>% select(-hybrid_selector),
       # full_ma = ma_results,
       info = ma_info,
       adj_pval = filtered_adj_p,
