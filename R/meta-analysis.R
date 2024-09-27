@@ -903,91 +903,98 @@ run_ma <- function (
     partial_model(random = random_bit, dat = data)
   }
 
+  # pb <- txtProgressBar(min = 0, max = length(ma_ready), initial = 0) 
+  # pb <- txtProgressBar(0, length(ma_ready), style = 3)
+
+  # stepi <- 0
 
   # ma_ready <- ma_ready[1:2] # TESTING
   ma_start_time <- Sys.time()
 
-  if (isFALSE(multilevel)) {
-    ma_results <- map(ma_ready, function (ma_set) {
-      list(
+  ma_results <- map(ma_ready, function (ma_set) {
+
+    if (isFALSE(multilevel)) {
+
+      x <- list(
         ma_fixed = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), method = "FE"),
-        ma_random = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)))#, method = "DL") # eschewing DL, REML seems to be the better method
+        ma_random = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar))) # eschewing DL, REML seems to be the better method
       )
-    })
-  } else {
-    ma_results <- map(ma_ready, function (ma_set) {
-      list(
-        # ma_fixed = purrr::safely(multilevel_modeling)(partial_model = purrr::partial(metafor::rma.mv, yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar))), random_bit = ~ 1 | dat_level, data = ma_set),# method = "DL"),
-        ma_fixed = purrr::safely(metafor::rma.mv)(yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), random = ~ 1 | dat_level, dat = ma_set),# method = "DL"),
-        # ma_random = purrr::safely(multilevel_modeling)(partial_model = purrr::partial(metafor::rma.mv, yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar))), random_bit = ~ 1 | dat_level/dataset, data = ma_set)#, method = "DL")
-        ma_random = purrr::safely(metafor::rma.mv)(yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), random = ~ 1 | dat_level/dataset, dat = ma_set)#, method = "DL")
+
+      if (is.null(x$ma_fixed$error)) {
+        fixed_bit <- tibble(beta = x$ma_fixed$result$beta[1], beta_se = x$ma_fixed$result$se, beta_ci_lb = x$ma_fixed$result$ci.lb, beta_ci_ub = x$ma_fixed$result$ci.ub, beta_pval = x$ma_fixed$result$pval)
+      } else {
+        fixed_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA)
+      }
+
+      if (is.null(x$ma_random$error)) {
+        random_bit <- tibble(beta = x$ma_random$result$beta[1], beta_se = x$ma_random$result$se, beta_ci_lb = x$ma_random$result$ci.lb, beta_ci_ub = x$ma_random$result$ci.ub, beta_pval = x$ma_random$result$pval, tau2 = x$ma_random$result$tau2, QE = x$result$QE, QEp = x$ma_random$result$QEp)
+      } else {
+        random_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, tau2 = NA, QE = NA, QEp = NA)
+      }
+
+    } else { ## Multilevel, i.e. 3-lvl vs 2-lvl
+
+      x <- list(
+        ma_fixed = purrr::safely(metafor::rma.mv)(yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), random = ~ 1 | dat_level, dat = ma_set),
+        ma_random = purrr::safely(metafor::rma.mv)(yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), random = ~ 1 | dat_level/dataset, dat = ma_set)
       )
-    })
-  }
+
+      # print(x)
+      # dfasda
+
+      if (is.null(x$ma_fixed$error)) {
+        fixed_bit <- tibble(beta = x$ma_fixed$result$beta[1], beta_se = x$ma_fixed$result$se, beta_ci_lb = x$ma_fixed$result$ci.lb, beta_ci_ub = x$ma_fixed$result$ci.ub, beta_pval = x$ma_fixed$result$pval, omega2 = x$ma_fixed$result$sigma2, QE = x$ma_fixed$result$QE, QEp = x$ma_fixed$result$QEp)
+      } else {
+        fixed_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, omega2 = NA, QE = NA, QEp = NA)
+      }
+
+      if (is.null(x$ma_random$error)) {
+        random_bit <- tibble(beta = x$ma_random$result$beta[1], beta_se = x$ma_random$result$se, beta_ci_lb = x$ma_random$result$ci.lb, beta_ci_ub = x$ma_random$result$ci.ub, beta_pval = x$ma_random$result$pval, tau2 = x$ma_random$result$sigma2[2], omega2 = x$ma_random$result$sigma2[1], QE = x$ma_random$result$QE, QEp = x$ma_random$result$QEp)
+      } else {
+        random_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, tau2 = NA, omega2 = NA, QE = NA, QEp = NA)
+      }
+
+    }
+
+    fixed_bit <- fixed_bit %>% rename_with(~ paste0(., "_H0"))
+    random_bit <- random_bit %>% rename_with(~ paste0(., "_H1"))
+
+    out <- bind_cols(fixed_bit, random_bit)
+
+    if (isTRUE(multilevel)) {
+      if (is.null(x$ma_fixed$error) & is.null(x$ma_random$error)) {
+        loglik_ratio <- metafor::anova.rma(x$ma_fixed$result, x$ma_random$result)
+        out$LRT <- loglik_ratio$LRT
+        out$H0_pval <- loglik_ratio$pval
+      } else {
+        out$LRT <- NA
+        out$H0_pval <- NA
+      }
+    }
+
+    # stepi <- stepi + 1
+    # setTxtProgressBar(pb, stepi)
+
+    return(out)
+
+  }) %>% bind_rows
+
+  # close(pb)
 
   ma_done_time <- Sys.time()
   ma_time_taken <- ma_done_time - ma_start_time
 
-  cat("\nPure meta-analysis took:\n")
+  cat("\nM-A + some processing took:\n")
   print(ma_time_taken)
 
-  if (isTRUE(multilevel)) {
-    LRT_H0 <- ma_results %>% lapply(function (x) {
-      if (is.null(x$ma_fixed$error) & is.null(x$ma_random$error)) {
-        loglik_ratio <- metafor::anova.rma(x$ma_fixed$result, x$ma_random$result)
-        return(data_frame(LRT = loglik_ratio$LRT, H0_pval = loglik_ratio$pval))
-      } else {
-        return(data_frame(LRT = NA, H0_pval = NA))
-      }
-    }) %>% bind_rows
-  }
 
   ma_object <- tibble(idvar = names(ma_ready)) %>% bind_cols(
     tibble(
       n_datasets = sapply(ma_ready, nrow),
       datasets = sapply(ma_ready, function (x) x$dataset %>% list)
     )
-  )
+  ) %>% bind_cols(ma_results)
 
-  if (isTRUE(multilevel)) {
-    ma_object <- ma_object %>% bind_cols(LRT_H0)
-  }
-
-  ma_object <- ma_object %>% bind_cols(
-
-    ma_results %>% lapply(function (x) {
-
-      if (isTRUE(multilevel)) {
-        if (is.null(x$ma_fixed$error)) {
-          fixed_bit <- tibble(beta = x$ma_fixed$result$beta[1], beta_se = x$ma_fixed$result$se, beta_ci_lb = x$ma_fixed$result$ci.lb, beta_ci_ub = x$ma_fixed$result$ci.ub, beta_pval = x$ma_fixed$result$pval, omega2 = x$ma_fixed$result$sigma2, QE = x$ma_fixed$result$QE, QEp = x$ma_fixed$result$QEp)
-        } else {
-          fixed_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, omega2 = NA, QE = NA, QEp = NA)
-        }
-        if (is.null(x$ma_random$error)) {
-          random_bit <- tibble(beta = x$result$beta[1], beta_se = x$result$se, beta_ci_lb = x$ma_random$result$ci.lb, beta_ci_ub = x$ma_random$result$ci.ub, beta_pval = x$result$pval, tau2 = x$result$sigma2[2], omega2 = x$result$sigma2[1], QE = x$result$QE, QEp = x$result$QEp)
-        } else {
-          random_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, tau2 = NA, omega2 = NA, QE = NA, QEp = NA)
-        }
-      } else {
-        if (is.null(x$ma_fixed$error)) {
-          fixed_bit <- tibble(beta = x$ma_fixed$result$beta[1], beta_se = x$ma_fixed$result$se, beta_ci_lb = x$ma_fixed$result$ci.lb, beta_ci_ub = x$ma_fixed$result$ci.ub, beta_pval = x$ma_fixed$result$pval)
-        } else {
-          fixed_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA)
-        }
-        if (is.null(x$ma_random$error)) {
-          random_bit <- tibble(beta = x$ma_random$result$beta[1], beta_se = x$ma_random$result$se, beta_ci_lb = x$ma_random$result$ci.lb, beta_ci_ub = x$ma_random$result$ci.ub, beta_pval = x$ma_random$result$pval, tau2 = x$ma_random$result$tau2, QE = x$result$QE, QEp = x$ma_random$result$QEp)
-        } else {
-          random_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, tau2 = NA, QE = NA, QEp = NA)
-        }
-      }
-
-      fixed_bit <- fixed_bit %>% rename_with(~ paste0(., "_H0"))
-      random_bit <- random_bit %>% rename_with(~ paste0(., "_H1"))
-
-      bind_cols(fixed_bit, random_bit)
-
-    }) %>% bind_rows
-  )
 
   if (isTRUE(multilevel)) {
     ma_object$hybrid_selector <- !is.na(ma_object$H0_pval) & (ma_object$H0_pval < H0_p_cutoff)
@@ -1005,7 +1012,7 @@ run_ma <- function (
     hybrid_adj_pval = ifelse(hybrid_selector, beta_pval_H1, beta_pval_H0) %>% p.adjust(method = p_adj_method),
     hybrid_beta = ifelse(hybrid_selector, beta_H1, beta_H0),
     hybrid_beta_se = ifelse(hybrid_selector, beta_se_H1, beta_se_H0)
-  ) ## ma_object
+  ) %>% select(hybrid_beta, hybrid_beta_se, hybrid_adj_pval, everything())
 
   filtered_adj_p <- inclusion_cutoff:max(ma_object$n_datasets) %>% lapply(function (cutoff) {
     out <- ma_object %>% filter(n_datasets >= cutoff)
