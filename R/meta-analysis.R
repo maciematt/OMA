@@ -1009,10 +1009,12 @@ run_ma <- function (
   ma_object <- ma_object %>% filter(!(is.na(beta_H0) & is.na(beta_H1)), n_datasets >= inclusion_cutoff) %>% mutate(
     beta_adj_pval_H0 = p.adjust(beta_pval_H0, method = p_adj_method),
     beta_adj_pval_H1 = p.adjust(beta_pval_H1, method = p_adj_method),
+    hybrid_hypothesis = ifelse(hybrid_selector, "H1", "H0"),
+    hybrid_pval = ifelse(hybrid_selector, beta_pval_H1, beta_pval_H0),
     hybrid_adj_pval = ifelse(hybrid_selector, beta_pval_H1, beta_pval_H0) %>% p.adjust(method = p_adj_method),
     hybrid_beta = ifelse(hybrid_selector, beta_H1, beta_H0),
     hybrid_beta_se = ifelse(hybrid_selector, beta_se_H1, beta_se_H0)
-  ) %>% select(hybrid_beta, hybrid_beta_se, hybrid_adj_pval, everything())
+  ) %>% select(hybrid_beta, hybrid_beta_se, hybrid_hypothesis, hybrid_pval, hybrid_adj_pval, everything())
 
   filtered_adj_p <- inclusion_cutoff:max(ma_object$n_datasets) %>% lapply(function (cutoff) {
     out <- ma_object %>% filter(n_datasets >= cutoff)
