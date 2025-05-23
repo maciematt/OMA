@@ -916,8 +916,8 @@ run_ma <- function (
     if (isFALSE(multilevel)) {
 
       x <- list(
-        ma_fixed = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), method = "FE"),
-        ma_random = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar))) # eschewing DL, REML seems to be the better method
+        ma_fixed = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, ma_set$sevar^2), method = "FE"),
+        ma_random = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, ma_set$sevar^2) # eschewing DL, REML seems to be the better method
       )
 
       if (is.null(x$ma_fixed$error)) {
@@ -927,7 +927,7 @@ run_ma <- function (
       }
 
       if (is.null(x$ma_random$error)) {
-        random_bit <- tibble(beta = x$ma_random$result$beta[1], beta_se = x$ma_random$result$se, beta_ci_lb = x$ma_random$result$ci.lb, beta_ci_ub = x$ma_random$result$ci.ub, beta_pval = x$ma_random$result$pval, tau2 = x$ma_random$result$tau2, QE = x$result$QE, QEp = x$ma_random$result$QEp)
+        random_bit <- tibble(beta = x$ma_random$result$beta[1], beta_se = x$ma_random$result$se, beta_ci_lb = x$ma_random$result$ci.lb, beta_ci_ub = x$ma_random$result$ci.ub, beta_pval = x$ma_random$result$pval, tau2 = x$ma_random$result$tau2, QE = x$ma_random$result$QE, QEp = x$ma_random$result$QEp)
       } else {
         random_bit <- tibble(beta = NA, beta_se = NA, beta_ci_lb = NA, beta_ci_ub = NA, beta_pval = NA, tau2 = NA, QE = NA, QEp = NA)
       }
@@ -935,8 +935,8 @@ run_ma <- function (
     } else { ## Multilevel, i.e. 3-lvl vs 2-lvl
 
       x <- list(
-        ma_fixed = purrr::safely(metafor::rma.mv)(yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), random = ~ 1 | dat_level, dat = ma_set),
-        ma_random = purrr::safely(metafor::rma.mv)(yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, sqrt(ma_set$sevar)), random = ~ 1 | dat_level/dataset, dat = ma_set)
+        ma_fixed = purrr::safely(metafor::rma.mv)(yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, ma_set$sevar^2), random = ~ 1 | dat_level, dat = ma_set),
+        ma_random = purrr::safely(metafor::rma.mv)(yi = ma_set$es, V = ifelse(se_or_variance == "variance", ma_set$sevar, ma_set$sevar^2), random = ~ 1 | dat_level/dataset, dat = ma_set)
       )
 
       # print(x)
