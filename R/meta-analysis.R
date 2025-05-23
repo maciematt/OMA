@@ -917,7 +917,7 @@ run_ma <- function (
 
       x <- list(
         ma_fixed = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, ma_set$sevar^2), method = "FE"),
-        ma_random = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, ma_set$sevar^2) # eschewing DL, REML seems to be the better method
+        ma_random = purrr::safely(metafor::rma)(yi = ma_set$es, vi = ifelse(se_or_variance == "variance", ma_set$sevar, ma_set$sevar^2)) # eschewing DL, REML seems to be the better method
       )
 
       if (is.null(x$ma_fixed$error)) {
